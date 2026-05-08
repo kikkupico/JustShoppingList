@@ -113,7 +113,7 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
 function Checkbox({ checked, onChange }) {
   return html`
     <label class="checkbox-wrap">
-      <input type="checkbox" checked=${checked} onChange=${onChange} />
+      <input type="checkbox" name="item-checkbox" checked=${checked} onChange=${onChange} />
       <span class="checkbox-box">
         <svg width="12" height="10" viewBox="0 0 12 10" fill="none">
           <polyline class="check-path" points="1.5,5 4.5,8 10.5,1.5"
@@ -231,7 +231,7 @@ function ReceiptModal({ listId, onClose, onAdded }) {
             <${IconUpload}/>
             <p>Drag & drop a receipt photo</p>
             <p style="font-size:0.75rem;margin-top:0.25rem">or tap to choose / take photo</p>
-            <input ref=${fileRef} type="file" accept="image/*" capture="environment"
+            <input ref=${fileRef} type="file" name="receipt-file" id="receipt-file" accept="image/*" capture="environment"
               style="display:none"
               onChange=${e => { const f = e.target.files[0]; if (f) processFile(f); }} />
           </div>
@@ -257,8 +257,8 @@ function ReceiptModal({ listId, onClose, onAdded }) {
           <p class="found-items-header">Found ${foundItems.length} item${foundItems.length !== 1 ? 's' : ''} — deselect any to skip</p>
           <ul class="found-items-list">
             ${foundItems.map((item, i) => html`
-              <li key=${i} class="found-item-row" onClick=${() => toggleFound(i)}>
-                <${Checkbox} checked=${selected.has(i)} onChange=${() => toggleFound(i)}/>
+              <li key=${i} class="found-item-row" onClick=${(e) => { e.preventDefault(); toggleFound(i); }}>
+                <${Checkbox} checked=${selected.has(i)} onChange=${(e) => { e.stopPropagation(); toggleFound(i); }}/>
                 <span class="item-name">${item.name}</span>
                 ${item.qty > 1 && html`<span class="qty-badge">×${item.qty}</span>`}
                 <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
@@ -366,7 +366,7 @@ function ListView({ listId, listName: initialName, onBack }) {
     <div>
       <div class="list-header">
         <button class="icon-btn" onClick=${onBack}><${IconBack}/></button>
-        <input class="list-name-input" value=${listName}
+        <input class="list-name-input" name="list-name" id="list-name" value=${listName}
           onInput=${e => setListName(e.target.value)}
           onBlur=${e => handleRename(e.target.value)}
           onKeyDown=${e => e.key === 'Enter' && e.target.blur()}
@@ -429,6 +429,8 @@ function ListView({ listId, listName: initialName, onBack }) {
       <div class="add-item-bar">
         <input
           class="add-item-input"
+          name="add-item"
+          id="add-item"
           placeholder="Add item..."
           value=${addText}
           onInput=${e => setAddText(e.target.value)}

@@ -1,17 +1,22 @@
 import { createWorker } from 'https://esm.sh/tesseract.js@5.1.1';
 
 let worker = null;
+let initPromise = null;
 export let isOCRReady = false;
 
 export async function initOCR() {
-  if (worker) return;
-  worker = await createWorker('eng', 1, {
-    workerPath: 'https://esm.sh/tesseract.js@5.1.1/dist/worker.min.js',
-    langPath: 'https://tessdata.projectnaptha.com/4.0.0',
-    corePath: 'https://esm.sh/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
-    logger: () => {},
-  });
-  isOCRReady = true;
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    if (worker) return;
+    worker = await createWorker('eng', 1, {
+      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+      langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+      corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
+      logger: () => {},
+    });
+    isOCRReady = true;
+  })();
+  return initPromise;
 }
 
 function preprocessImage(imageFile) {
