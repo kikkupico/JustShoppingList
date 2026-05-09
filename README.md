@@ -39,10 +39,15 @@ Then open `http://localhost:8080`.
 
 ## Tests
 
-Receipt-extraction regression tests live under `tests/receipts/`. Each fixture is a folder with `raw.txt` (OCR text) and `expected.json` (ground truth). Run them with:
-
+**Regression tests** — unit tests against realistic synthetic receipts:
+```sh
+node tests/run.mjs          # Run all (instant)
+node tests/run.mjs costco   # Filter by store name
 ```
-node tests/run.mjs
+
+**Benchmark** — full OCR + parsing pipeline against the ICDAR receipt dataset:
+```sh
+node tests/benchmark.mjs ../ICDAR-SROIE-2019 --limit 10 --verbose
 ```
 
-See `tests/README.md` for the fixture format and how to add a new receipt.
+See `tests/README.md` for unit test fixture format. See `tests/BENCHMARK.md` for setup and running the large-scale benchmark.
