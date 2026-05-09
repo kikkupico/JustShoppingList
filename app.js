@@ -231,7 +231,7 @@ function ReceiptModal({ listId, onClose, onAdded }) {
             <${IconUpload}/>
             <p>Drag & drop a receipt photo</p>
             <p style="font-size:0.75rem;margin-top:0.25rem">or tap to choose / take photo</p>
-            <input ref=${fileRef} type="file" name="receipt-file" id="receipt-file" accept="image/*" capture="environment"
+            <input ref=${fileRef} type="file" name="receipt-file" id="receipt-file" accept="image/*"
               style="display:none"
               onChange=${e => { const f = e.target.files[0]; if (f) processFile(f); }} />
           </div>
