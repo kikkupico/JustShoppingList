@@ -1,0 +1,60 @@
+{
+  "items": [
+    {
+      "name": "Milk Whole 2% 1L",
+      "qty": 1,
+      "category": "dairy"
+    },
+    {
+      "name": "Bananas 0.65kg",
+      "qty": 1,
+      "category": "produce",
+      "weight": "0.65kg"
+    },
+    {
+      "name": "Bread Wheat",
+      "qty": 1,
+      "category": "bakery"
+    },
+    {
+      "name": "Chicken Breast",
+      "qty": 2,
+      "category": "meat"
+    },
+    {
+      "name": "Apples Honeycrisp",
+      "qty": 1,
+      "category": "produce"
+    },
+    {
+      "name": "Organic Spinach",
+      "qty": 1,
+      "category": "produce"
+    },
+    {
+      "name": "Eggs Large Doz",
+      "qty": 1,
+      "category": "dairy"
+    },
+    {
+      "name": "Coffee Dark Roast",
+      "qty": 1,
+      "category": "drinks"
+    },
+    {
+      "name": "Toilet Paper 12Pk",
+      "qty": 1,
+      "category": "household"
+    },
+    {
+      "name": "Milk Skim 2L",
+      "qty": 1,
+      "category": "dairy"
+    },
+    {
+      "name": "Coke 12Pk",
+      "qty": 1,
+      "category": "drinks"
+    }
+  ]
+}

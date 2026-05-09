@@ -1,0 +1,21 @@
+SAFEWAY
+1234 MAIN ST
+TEL 555-1234
+03/15/2024 14:32
+
+MLK WHL 2% 1L          3.99
+BNANAS 0.65kg @ 1.99/kg 1.29
+BRD WHEAT              4.50
+2 X CHKN BREAST        12.99
+APLS HONEYCRISP        5.99 T
+ORG SPNACH             3.49
+EGGS LRG DOZ           4.99
+COFF DARK ROAST        8.99
+TOILET PAPER 12PK      11.99
+M1LK SKM 2L            4.50
+C0KE 12PK              7.99
+
+SUBTOTAL              46.23
+TAX                    1.85
+TOTAL                 48.08
+VISA                  48.08
