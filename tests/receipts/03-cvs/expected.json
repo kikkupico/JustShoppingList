@@ -1,0 +1,76 @@
+{
+  "items": [
+    {
+      "name": "Ibuprofen 200Mg 100Ct",
+      "qty": 1,
+      "category": "other"
+    },
+    {
+      "name": "Diphenhydramine 25Mg",
+      "qty": 1,
+      "category": "other"
+    },
+    {
+      "name": "Cough Syrup Dm 8 oz",
+      "qty": 1,
+      "category": "other",
+      "weight": "8oz"
+    },
+    {
+      "name": "Bandage Assorted Extra Large",
+      "qty": 1,
+      "category": "other"
+    },
+    {
+      "name": "Kleenex Tissue 3Pk",
+      "qty": 1,
+      "category": "household"
+    },
+    {
+      "name": "Tampons Super 36Ct",
+      "qty": 1,
+      "category": "other"
+    },
+    {
+      "name": "Advil Cola Sinus 20Ct",
+      "qty": 1,
+      "category": "drinks"
+    },
+    {
+      "name": "Daily Vitamin Gummie",
+      "qty": 1,
+      "category": "other"
+    },
+    {
+      "name": "Sunscreen Spf 50 8 oz",
+      "qty": 1,
+      "category": "household",
+      "weight": "8oz"
+    },
+    {
+      "name": "Shampoo ANTI-DANDRUFF",
+      "qty": 1,
+      "category": "household"
+    },
+    {
+      "name": "Deodorant Stick Unscen",
+      "qty": 1,
+      "category": "household"
+    },
+    {
+      "name": "Protein Snack Bar 5Pk",
+      "qty": 1,
+      "category": "other"
+    },
+    {
+      "name": "Trash Bags 13 Gallon 60Ct",
+      "qty": 1,
+      "category": "household"
+    },
+    {
+      "name": "Batteries Aa 8Pk",
+      "qty": 1,
+      "category": "household"
+    }
+  ]
+}

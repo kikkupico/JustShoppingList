@@ -1,0 +1,82 @@
+{
+  "items": [
+    {
+      "name": "Organic Mushroom Risotto",
+      "qty": 1,
+      "category": "produce"
+    },
+    {
+      "name": "Frozen Rice Cauliflower",
+      "qty": 1,
+      "category": "produce"
+    },
+    {
+      "name": "Butternut Squash Ravioli",
+      "qty": 1,
+      "category": "dairy"
+    },
+    {
+      "name": "Cauliflower Pizza Crust",
+      "qty": 1,
+      "category": "produce"
+    },
+    {
+      "name": "Elote Mexican Street Corn",
+      "qty": 1,
+      "category": "produce"
+    },
+    {
+      "name": "Dark Choc Peanut Butter",
+      "qty": 1,
+      "category": "dairy"
+    },
+    {
+      "name": "Organic Face Wash Unsc",
+      "qty": 1,
+      "category": "other"
+    },
+    {
+      "name": "Sprout Grain Bread",
+      "qty": 1,
+      "category": "produce"
+    },
+    {
+      "name": "Coconut Shrimp Gyoza 10Ct",
+      "qty": 1,
+      "category": "seafood"
+    },
+    {
+      "name": "Organic Salsa Medium",
+      "qty": 1,
+      "category": "other"
+    },
+    {
+      "name": "Greek Yogurt Honey 32Oz",
+      "qty": 1,
+      "category": "dairy",
+      "weight": "32oz"
+    },
+    {
+      "name": "Kombucha Ginger 16 oz Can",
+      "qty": 1,
+      "category": "drinks",
+      "weight": "16oz"
+    },
+    {
+      "name": "Maple Pecan Granola 12Oz",
+      "qty": 1,
+      "category": "snacks",
+      "weight": "12oz"
+    },
+    {
+      "name": "Chocolate Chip Cookies",
+      "qty": 1,
+      "category": "drinks"
+    },
+    {
+      "name": "Chai Latte Concentrate",
+      "qty": 1,
+      "category": "drinks"
+    }
+  ]
+}
