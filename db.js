@@ -161,3 +161,13 @@ export async function clearChecked(listId) {
   }
   await db.items.where('listId').equals(listId).and(i => i.checked).delete();
 }
+
+export async function setAllChecked(listId, checked) {
+  initDB();
+  if (usingLocalStorage) {
+    lsSaveItems(lsItems().map(i => i.listId === listId ? { ...i, checked } : i));
+    return;
+  }
+  const ids = await db.items.where('listId').equals(listId).primaryKeys();
+  await Promise.all(ids.map(id => db.items.update(id, { checked })));
+}

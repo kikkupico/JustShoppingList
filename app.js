@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@
 import { html } from 'https://esm.sh/htm@3.1.1/preact';
 import {
   createList, getLists, updateListName, deleteList, duplicateList,
-  addItem, getItems, toggleItem, deleteItem, clearChecked
+  addItem, getItems, toggleItem, deleteItem, clearChecked, setAllChecked
 } from './db.js';
 import { initOCR, recogniseReceipt, isOCRReady } from './ocr.js';
 import { extractItemsFromText } from './parser.js';
@@ -350,6 +350,18 @@ function ListView({ listId, listName: initialName, onBack }) {
     loadItems();
   }
 
+  async function handleUncheckAll() {
+    setShowMenu(false);
+    await setAllChecked(listId, false);
+    loadItems();
+  }
+
+  async function handleCheckAll() {
+    setShowMenu(false);
+    await setAllChecked(listId, true);
+    loadItems();
+  }
+
   function handleExportJSON() {
     setShowMenu(false);
     const data = { name: listName, exportedAt: new Date().toISOString(), items };
@@ -389,6 +401,8 @@ function ListView({ listId, listName: initialName, onBack }) {
           <button class="icon-btn" onClick=${() => setShowMenu(v => !v)}><${IconMore}/></button>
           ${showMenu && html`
             <div class="overflow-menu">
+              <button onClick=${handleUncheckAll}>Uncheck all</button>
+              <button onClick=${handleCheckAll}>Check all</button>
               <button onClick=${handleClearChecked}>Clear checked</button>
               <button onClick=${handleExportJSON}>Export JSON</button>
               <button onClick=${handleShareURL}>Share as URL</button>
