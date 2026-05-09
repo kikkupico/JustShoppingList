@@ -2,7 +2,7 @@ import { h, render } from 'https://esm.sh/preact@10.22.0';
 import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@10.22.0/hooks';
 import { html } from 'https://esm.sh/htm@3.1.1/preact';
 import {
-  createList, getLists, updateListName, deleteList,
+  createList, getLists, updateListName, deleteList, duplicateList,
   addItem, getItems, toggleItem, deleteItem, clearChecked
 } from './db.js';
 import { initOCR, recogniseReceipt, isOCRReady } from './ocr.js';
@@ -69,6 +69,8 @@ const IconPlus = () => html`<svg width="22" height="22" viewBox="0 0 24 24" fill
 const IconShield = () => html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
 const IconX = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 const IconUpload = () => html`<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`;
+
+const IconCopy = () => html`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
 // ─── Toast ─────────────────────────────────────────────────────────────────────
 
@@ -507,6 +509,15 @@ function ListsScreen({ onOpen }) {
     loadLists();
   }
 
+  async function handleDuplicate(e, list) {
+    e.stopPropagation();
+    const newId = await duplicateList(list.id, list.name);
+    await loadLists();
+    const fresh = await getLists();
+    const created = fresh.find(l => l.id === newId);
+    if (created) onOpen(created);
+  }
+
   return html`
     <div>
       <header class="app-header">
@@ -546,6 +557,9 @@ function ListsScreen({ onOpen }) {
               onTouchStart=${() => startLongPress(list)}
               onTouchEnd=${cancelLongPress}>
               <div class="list-card-name">${list.name}</div>
+              <button class="list-card-dup" title="Duplicate list" onClick=${e => handleDuplicate(e, list)}>
+                <${IconCopy}/>
+              </button>
             </div>
           `)}
         </div>

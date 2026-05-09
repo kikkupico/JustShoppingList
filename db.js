@@ -127,6 +127,32 @@ export async function updateItem(id, changes) {
   return db.items.update(id, changes);
 }
 
+export async function duplicateList(sourceId, newName) {
+  initDB();
+  const now = new Date().toISOString();
+  const sourceItems = await getItems(sourceId);
+  const unchecked = sourceItems.filter(i => !i.checked);
+  if (usingLocalStorage) {
+    const lists = lsLists();
+    const newList = { id: lsNextId(lists), name: newName, createdAt: now, updatedAt: now };
+    lsSaveLists([...lists, newList]);
+    const items = lsItems();
+    const newItems = unchecked.map((item, idx) => ({
+      id: lsNextId(items) + idx, listId: newList.id,
+      name: item.name, qty: item.qty, category: item.category,
+      checked: false, addedFrom: item.addedFrom,
+    }));
+    lsSaveItems([...items, ...newItems]);
+    return newList.id;
+  }
+  const newListId = await db.lists.add({ name: newName, createdAt: now, updatedAt: now });
+  await db.items.bulkAdd(unchecked.map(item => ({
+    listId: newListId, name: item.name, qty: item.qty,
+    category: item.category, checked: false, addedFrom: item.addedFrom,
+  })));
+  return newListId;
+}
+
 export async function clearChecked(listId) {
   initDB();
   if (usingLocalStorage) {

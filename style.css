@@ -108,7 +108,25 @@ body {
   transition: box-shadow var(--transition), transform var(--transition);
   box-shadow: var(--shadow);
   user-select: none;
+  position: relative;
 }
+.list-card-dup {
+  position: absolute;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0.25rem;
+  border-radius: 4px;
+  line-height: 0;
+  opacity: 0;
+  transition: opacity var(--transition), color var(--transition);
+}
+.list-card:hover .list-card-dup { opacity: 1; }
+.list-card-dup:hover { color: var(--primary); }
+@media (hover: none) { .list-card-dup { opacity: 1; } }
 .list-card:hover {
   box-shadow: 0 4px 12px rgba(0,0,0,0.12);
   transform: translateY(-1px);
