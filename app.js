@@ -307,11 +307,23 @@ function ListView({ listId, listName: initialName, onBack }) {
   }, []);
 
   async function handleAdd() {
-    const name = addText.trim();
-    if (!name) return;
-    await addItem(listId, { name });
+    const lines = addText.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+    const existing = new Set(items.map(i => i.name.toLowerCase()));
+    const toAdd = [...new Set(lines)].filter(l => !existing.has(l.toLowerCase()));
+    await Promise.all(toAdd.map(name => addItem(listId, { name })));
     setAddText('');
     loadItems();
+  }
+
+  function handlePaste(e) {
+    const text = e.clipboardData.getData('text');
+    if (!text.includes('\n')) return;
+    e.preventDefault();
+    setAddText(prev => {
+      const joined = prev ? prev + '\n' + text : text;
+      return joined;
+    });
   }
 
   async function handleToggle(id) {
@@ -363,7 +375,7 @@ function ListView({ listId, listName: initialName, onBack }) {
   const pct = total ? Math.round((checkedCount / total) * 100) : 0;
 
   return html`
-    <div>
+    <div class="list-view">
       <div class="list-header">
         <button class="icon-btn" onClick=${onBack}><${IconBack}/></button>
         <input class="list-name-input" name="list-name" id="list-name" value=${listName}
@@ -387,7 +399,7 @@ function ListView({ listId, listName: initialName, onBack }) {
         <div class="progress-bar-fill" style="width:${pct}%"></div>
       </div>
 
-      <div class="screen" style="padding-bottom:5rem">
+      <div class="screen list-scroll-area">
         <ul class="items-list">
           ${unchecked.map(item => html`
             <li key=${item.id} class="item-row">
@@ -427,14 +439,15 @@ function ListView({ listId, listName: initialName, onBack }) {
       </div>
 
       <div class="add-item-bar">
-        <input
+        <textarea
           class="add-item-input"
           name="add-item"
           id="add-item"
-          placeholder="Add item..."
+          placeholder="Add item... (paste a list to bulk-add)"
           value=${addText}
           onInput=${e => setAddText(e.target.value)}
-          onKeyDown=${e => e.key === 'Enter' && handleAdd()}
+          onPaste=${handlePaste}
+          onKeyDown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAdd(); } }}
         />
         <button class="add-btn" onClick=${handleAdd}><${IconPlus}/></button>
       </div>

@@ -174,6 +174,16 @@ body {
 }
 
 /* ListView */
+.list-view {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+.list-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 1rem;
+}
 .list-header {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -319,14 +329,11 @@ body {
 
 /* Add item input */
 .add-item-bar {
-  position: sticky;
-  bottom: 0;
   background: var(--surface);
   border-top: 1px solid var(--border);
   padding: 0.65rem 1rem;
   display: flex;
   gap: 0.5rem;
-  z-index: 80;
 }
 .add-item-input {
   flex: 1;
@@ -339,8 +346,15 @@ body {
   color: var(--text);
   outline: none;
   transition: border-color var(--transition);
+  resize: none;
+  line-height: 1.4;
+  field-sizing: content;
+  min-height: 2.2rem;
+  max-height: 9rem;
+  overflow-y: auto;
 }
 .add-item-input:focus { border-color: var(--primary); }
+.add-item-bar { align-items: flex-end; }
 .add-btn {
   background: var(--primary);
   color: #fff;
