@@ -215,6 +215,29 @@ body {
   z-index: 100;
 }
 
+.icon-btn.active { color: var(--primary); }
+.sort-btn { gap: 0.2rem; font-size: 0.72rem; font-weight: 600; }
+.sort-label:empty { display: none; }
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.875rem;
+  color: var(--text);
+  outline: none;
+}
+
 .list-name-input {
   flex: 1;
   border: none;

@@ -12,6 +12,10 @@ function initDB() {
       lists: '++id, name, createdAt, updatedAt',
       items: '++id, listId, name, qty, category, checked, addedFrom',
     });
+    db.version(2).stores({
+      lists: '++id, name, createdAt, updatedAt',
+      items: '++id, listId, name, qty, category, checked, addedFrom, lastCheckedAt',
+    });
   } catch (e) {
     usingLocalStorage = true;
     db = null;
@@ -102,11 +106,17 @@ export async function getItems(listId) {
 export async function toggleItem(id) {
   initDB();
   if (usingLocalStorage) {
-    lsSaveItems(lsItems().map(i => i.id === id ? { ...i, checked: !i.checked } : i));
+    lsSaveItems(lsItems().map(i => {
+      if (i.id !== id) return i;
+      const checked = !i.checked;
+      return { ...i, checked, ...(checked ? { lastCheckedAt: new Date().toISOString() } : {}) };
+    }));
     return;
   }
   const item = await db.items.get(id);
-  if (item) await db.items.update(id, { checked: !item.checked });
+  if (!item) return;
+  const checked = !item.checked;
+  await db.items.update(id, { checked, ...(checked ? { lastCheckedAt: new Date().toISOString() } : {}) });
 }
 
 export async function deleteItem(id) {

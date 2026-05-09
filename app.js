@@ -69,8 +69,9 @@ const IconPlus = () => html`<svg width="22" height="22" viewBox="0 0 24 24" fill
 const IconShield = () => html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
 const IconX = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 const IconUpload = () => html`<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`;
-
 const IconCopy = () => html`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const IconSearch = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
+const IconSort = () => html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="9" y2="18"/></svg>`;
 
 // ─── Toast ─────────────────────────────────────────────────────────────────────
 
@@ -291,7 +292,11 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [addText, setAddText] = useState('');
   const [showMenu, setShowMenu] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [search, setSearch] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [sort, setSort] = useState('manual'); // 'manual' | 'alpha' | 'recent'
   const menuRef = useRef(null);
+  const searchRef = useRef(null);
 
   const loadItems = useCallback(async () => {
     const data = await getItems(listId);
@@ -362,6 +367,15 @@ function ListView({ listId, listName: initialName, onBack }) {
     loadItems();
   }
 
+  function toggleSearch() {
+    setShowMenu(false);
+    setShowSearch(v => {
+      if (v) setSearch('');
+      else setTimeout(() => searchRef.current?.focus(), 50);
+      return !v;
+    });
+  }
+
   function handleExportJSON() {
     setShowMenu(false);
     const data = { name: listName, exportedAt: new Date().toISOString(), items };
@@ -382,10 +396,18 @@ function ListView({ listId, listName: initialName, onBack }) {
     }
   }
 
-  const unchecked = items.filter(i => !i.checked);
-  const checked = items.filter(i => i.checked);
+  const q = search.trim().toLowerCase();
+  const filtered = q ? items.filter(i => i.name.toLowerCase().includes(q)) : items;
+  const sorted = filtered.slice().sort((a, b) => {
+    if (sort === 'alpha') return a.name.localeCompare(b.name);
+    if (sort === 'recent') return (b.lastCheckedAt || '') > (a.lastCheckedAt || '') ? 1 : -1;
+    return 0; // manual: preserve insertion order
+  });
+  const unchecked = sorted.filter(i => !i.checked);
+  const checked = sorted.filter(i => i.checked);
+  const visible = sorted;
   const total = items.length;
-  const checkedCount = checked.length;
+  const checkedCount = items.filter(i => i.checked).length;
   const pct = total ? Math.round((checkedCount / total) * 100) : 0;
 
   return html`
@@ -397,6 +419,13 @@ function ListView({ listId, listName: initialName, onBack }) {
           onBlur=${e => handleRename(e.target.value)}
           onKeyDown=${e => e.key === 'Enter' && e.target.blur()}
         />
+        <button class="icon-btn sort-btn ${sort !== 'manual' ? 'active' : ''}"
+          onClick=${() => setSort(s => s === 'manual' ? 'alpha' : s === 'alpha' ? 'recent' : 'manual')}
+          title=${{ manual: 'Sort: manual', alpha: 'Sort: A–Z', recent: 'Sort: last used' }[sort]}>
+          <${IconSort}/>
+          <span class="sort-label">${{ manual: '', alpha: 'A–Z', recent: 'Recent' }[sort]}</span>
+        </button>
+        <button class="icon-btn ${showSearch ? 'active' : ''}" onClick=${toggleSearch} title="Search items"><${IconSearch}/></button>
         <div class="overflow-menu-wrap" ref=${menuRef}>
           <button class="icon-btn" onClick=${() => setShowMenu(v => !v)}><${IconMore}/></button>
           ${showMenu && html`
@@ -410,6 +439,21 @@ function ListView({ listId, listName: initialName, onBack }) {
           `}
         </div>
       </div>
+
+      ${showSearch && html`
+        <div class="search-bar">
+          <${IconSearch}/>
+          <input
+            ref=${searchRef}
+            class="search-input"
+            placeholder="Search items..."
+            value=${search}
+            onInput=${e => setSearch(e.target.value)}
+            onKeyDown=${e => e.key === 'Escape' && toggleSearch()}
+          />
+          ${search && html`<button class="icon-btn" onClick=${() => setSearch('')}><${IconX}/></button>`}
+        </div>
+      `}
 
       <div class="progress-bar-wrap">
         <div class="progress-bar-fill" style="width:${pct}%"></div>
@@ -450,6 +494,11 @@ function ListView({ listId, listName: initialName, onBack }) {
         ${items.length === 0 && html`
           <div class="empty-state" style="padding:2rem 0">
             <p>No items yet — add one below.</p>
+          </div>
+        `}
+        ${items.length > 0 && visible.length === 0 && html`
+          <div class="empty-state" style="padding:2rem 0">
+            <p>No items match "${search}".</p>
           </div>
         `}
       </div>
