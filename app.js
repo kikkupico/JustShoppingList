@@ -153,13 +153,13 @@ function ReceiptModal({ listId, onClose, onAdded }) {
       setOcrPct(pct);
     }, 100);
 
-    let rawText;
+    let ocrResult;
     try {
       if (!isOCRReady) {
         toast('OCR loading, please wait...');
         await initOCR();
       }
-      rawText = await recogniseReceipt(file);
+      ocrResult = await recogniseReceipt(file);
     } catch (e) {
       clearInterval(timerRef.current);
       setPhase('error');
@@ -172,7 +172,7 @@ function ReceiptModal({ listId, onClose, onAdded }) {
     setPhase('extracting');
     let result;
     try {
-      result = await extractItemsFromText(rawText);
+      result = extractItemsFromText(ocrResult.text, ocrResult.lines);
     } catch (e) {
       setPhase('error');
       setErrorMsg('Could not extract items. Try again.');

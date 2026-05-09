@@ -14,6 +14,8 @@ export async function initOCR() {
       corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core.wasm.js',
       logger: () => {},
     });
+    // PSM 4: single column of variable-size text — best fit for receipts
+    await worker.setParameters({ tessedit_pageseg_mode: '4' });
     isOCRReady = true;
   })();
   return initPromise;
@@ -54,6 +56,13 @@ function preprocessImage(imageFile) {
 export async function recogniseReceipt(imageFile) {
   if (!worker) throw new Error('OCR worker not ready');
   const processed = await preprocessImage(imageFile);
-  const { data: { text } } = await worker.recognize(processed);
-  return text;
+  const { data } = await worker.recognize(processed, {}, { text: true, blocks: true });
+  // Flatten blocks → paragraphs → lines so the parser doesn't have to walk the tree
+  const lines = [];
+  for (const block of (data.blocks || [])) {
+    for (const para of (block.paragraphs || [])) {
+      for (const line of (para.lines || [])) lines.push(line);
+    }
+  }
+  return { text: data.text || '', lines };
 }
