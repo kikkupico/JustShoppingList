@@ -432,6 +432,9 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [sort, setSort] = useState('manual'); // 'manual' | 'alpha' | 'recent' | 'category'
+  const [editingId, setEditingId] = useState(null);
+  const menuRef = useRef(null);
+  const addInputRef = useRef(null);
 
   const loadItems = useCallback(async () => {
     const data = await getItems(listId);
@@ -619,6 +622,9 @@ function ListView({ listId, listName: initialName, onBack }) {
   const checkedCount = items.filter(i => i.checked).length;
   const pct = total ? Math.round((checkedCount / total) * 100) : 0;
 
+  const sortLabel = { manual: '', alpha: 'A–Z', recent: 'Recent', category: 'Category' }[sort];
+  const sortTitle = { manual: 'Sort: manual', alpha: 'Sort: A–Z', recent: 'Sort: last used', category: 'Sort: Category' }[sort];
+
   return html`
     <div class="list-view">
       <div class="list-header">
@@ -630,9 +636,9 @@ function ListView({ listId, listName: initialName, onBack }) {
         />
         <button class="icon-btn sort-btn ${sort !== 'manual' ? 'active' : ''}"
           onClick=${() => setSort(s => s === 'manual' ? 'alpha' : s === 'alpha' ? 'recent' : s === 'recent' ? 'category' : 'manual')}
-          title=${{ manual: 'Sort: manual', alpha: 'Sort: A–Z', recent: 'Sort: last used', category: 'Sort: Category' }[sort]}>
+          title=${sortTitle}>
           <${IconSort}/>
-          <span class="sort-label">${{ manual: '', alpha: 'A–Z', recent: 'Recent', category: 'Category' }[sort]}</span>
+          <span class="sort-label">${sortLabel}</span>
         </button>
         <button class="add-header-btn ${showAdd ? 'active' : ''}" onClick=${toggleAdd} title="Add item">
           <${IconPlus}/> Add

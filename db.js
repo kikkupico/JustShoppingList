@@ -5,7 +5,7 @@ let usingLocalStorage = false;
 let lsToastShown = false;
 
 function initDB() {
-  if (db) return;
+  if (db || usingLocalStorage) return;
   try {
     db = new Dexie('JustShoppingListDB');
     db.version(1).stores({
@@ -15,6 +15,11 @@ function initDB() {
     db.version(2).stores({
       lists: '++id, name, createdAt, updatedAt',
       items: '++id, listId, name, qty, category, checked, addedFrom, lastCheckedAt',
+    });
+    db.open().catch(err => {
+      console.error('Dexie open failed, falling back to localStorage:', err);
+      usingLocalStorage = true;
+      db = null;
     });
   } catch (e) {
     usingLocalStorage = true;
