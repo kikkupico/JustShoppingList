@@ -5,12 +5,14 @@
 //   node tests/benchmark.mjs <dataset-path> [options]
 //
 // Options:
+//   --dataset PATH    Path to the dataset (alternative to positional arg)
+//   --core PATH       Alias for --dataset (convenience for core/CORD dataset)
 //   --limit N         Process only first N receipts (also: --limit=N)
 //   --workers N       Parallel OCR workers (default: min(4, cpus))
 //   --baseline FILE   Diff item lists against a prior --report JSON
 //   --verbose         Show items extracted per receipt
 //   --report          Save results to JSON file
-//   --skip-ocr        Use pre-OCR'd .txt files in the dataset folder
+//   --skip-ocr        Use pre-OCR'd .txt or .json files in the dataset folder
 //
 // Dataset layout:
 //   dataset/
@@ -35,7 +37,7 @@ try {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ─── arg parsing ──────────────────────────────────────────────────────────────
-const VALUE_FLAGS = new Set(['limit', 'workers', 'baseline']);
+const VALUE_FLAGS = new Set(['limit', 'workers', 'baseline', 'dataset', 'core']);
 const argv = process.argv.slice(2);
 const positional = [];
 const flags = {};
@@ -49,7 +51,7 @@ for (let i = 0; i < argv.length; i++) {
   else flags[name] = true;
 }
 
-const datasetPath = positional[0];
+const datasetPath = flags.dataset || flags.core || positional[0];
 const limit       = parseInt(flags.limit, 10) || Infinity;
 const workerCount = Math.max(1, parseInt(flags.workers, 10) || Math.min(4, os.cpus().length));
 const baseline    = typeof flags.baseline === 'string' ? flags.baseline : null;
@@ -59,19 +61,21 @@ const skipOcr     = flags['skip-ocr'] === true || !createWorker;
 
 function printUsage() {
   console.log('Usage: node tests/benchmark.mjs <dataset-path> [options]');
+  console.log('       node tests/benchmark.mjs --dataset <dataset-path> [options]');
   console.log('');
   console.log('Options:');
+  console.log('  --dataset PATH    Path to the dataset');
+  console.log('  --core PATH       Alias for --dataset (e.g. CORD)');
   console.log('  --limit N         Process only first N receipts');
   console.log('  --workers N       Parallel OCR workers (default: min(4, cpus))');
   console.log('  --baseline FILE   Diff against a prior --report JSON');
   console.log('  --verbose         Show items extracted per receipt');
   console.log('  --report          Save results to JSON file');
-  console.log('  --skip-ocr        Use pre-OCR\'d .txt files, skip image OCR');
+  console.log('  --skip-ocr        Use pre-OCR\'d .txt or .json files');
   console.log('');
   console.log('Examples:');
-  console.log('  node tests/benchmark.mjs ../ICDAR-SROIE-2019 --limit 10 --verbose');
-  console.log('  node tests/benchmark.mjs ../ICDAR-SROIE-2019 --workers 8 --report');
-  console.log('  node tests/benchmark.mjs ../ICDAR-SROIE-2019 --baseline tests/benchmark-prev.json');
+  console.log('  node tests/benchmark.mjs ../ICDAR-SROIE-2019 --limit 10');
+  console.log('  node tests/benchmark.mjs --core ../cord-dataset --skip-ocr');
 }
 
 if (!datasetPath) { printUsage(); process.exit(1); }
@@ -86,14 +90,14 @@ if (!fs.existsSync(datasetPath)) {
 // prefers train/ over test/ because train/ ships the key/ annotations.
 function findSource(root) {
   let txtFallback = null;
-  for (const candidate of ['box', 'images', 'img', '.']) {
+  for (const candidate of ['box', 'images', 'image', 'figure', 'img', 'json', '.']) {
     const dir = path.join(root, candidate);
     if (!fs.existsSync(dir)) continue;
     const files = fs.readdirSync(dir);
     if (!skipOcr && files.some(f => /\.(jpe?g|png)$/i.test(f))) {
       return { sourceDir: dir, mode: 'ocr' };
     }
-    if (files.some(f => /\.txt$/i.test(f)) && !txtFallback) {
+    if (files.some(f => /\.(txt|json)$/i.test(f)) && !txtFallback) {
       txtFallback = dir;
     }
   }
@@ -104,7 +108,7 @@ function findSource(root) {
 let sourceDir = null;
 let mode = null;
 let datasetRoot = datasetPath;
-for (const sub of ['', 'train', 'test']) {
+for (const sub of ['', 'train', 'test', 'dev']) {
   const candidate = sub ? path.join(datasetPath, sub) : datasetPath;
   if (!fs.existsSync(candidate)) continue;
   const found = findSource(candidate);
@@ -116,14 +120,16 @@ for (const sub of ['', 'train', 'test']) {
 }
 
 if (!mode) {
-  console.error(`\n✗ No ${skipOcr ? '.txt files' : 'images or .txt files'} found under ${datasetPath}\n`);
+  console.error(`\n✗ No ${skipOcr ? '.txt or .json files' : 'images, .txt, or .json files'} found under ${datasetPath}\n`);
   process.exit(1);
 }
 
 // SROIE Task 3 ground truth: key/<basename>.txt contains JSON with company/date/total.
-const keyDir = fs.existsSync(path.join(datasetRoot, 'key')) ? path.join(datasetRoot, 'key') : null;
+// CORD ground truth: json/<basename>.json contains the same structure as input JSON.
+const keyDir = fs.existsSync(path.join(datasetRoot, 'key')) ? path.join(datasetRoot, 'key') :
+               fs.existsSync(path.join(datasetRoot, 'json')) ? path.join(datasetRoot, 'json') : null;
 
-const filePattern = mode === 'ocr' ? /\.(jpe?g|png)$/i : /\.txt$/i;
+const filePattern = mode === 'ocr' ? /\.(jpe?g|png)$/i : /\.(txt|json)$/i;
 const files = fs.readdirSync(sourceDir)
   .filter(f => filePattern.test(f))
   .sort()
@@ -196,9 +202,11 @@ function maybeStripBoxFormat(text) {
 function loadKey(basename) {
   if (!keyDir) return null;
   const keyPath = path.join(keyDir, `${basename}.txt`);
-  if (!fs.existsSync(keyPath)) return null;
+  const keyPathJson = path.join(keyDir, `${basename}.json`);
+  const p = fs.existsSync(keyPath) ? keyPath : (fs.existsSync(keyPathJson) ? keyPathJson : null);
+  if (!p) return null;
   try {
-    return JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
   } catch {
     return null;
   }
@@ -304,8 +312,19 @@ function runTextPipeline() {
     const filePath = path.join(sourceDir, file);
     const basename = path.basename(file, path.extname(file));
     try {
-      const raw = fs.readFileSync(filePath, 'utf8');
-      const text = maybeStripBoxFormat(raw);
+      let text;
+      if (file.endsWith('.json')) {
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        if (data.valid_line) {
+          // CORD format: reconstruct text lines from words
+          text = data.valid_line.map(line => line.words.map(w => w.text).join(' ')).join('\n');
+        } else {
+          text = JSON.stringify(data);
+        }
+      } else {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        text = maybeStripBoxFormat(raw);
+      }
       const { items, parseMs } = parseText(text);
       recordResult(basename, { success: true, itemCount: items.length, items, parseMs });
     } catch (e) {
