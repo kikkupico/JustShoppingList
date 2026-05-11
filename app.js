@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@
 import { html } from 'https://esm.sh/htm@3.1.1/preact';
 import {
   createList, getLists, updateListName, deleteList, duplicateList,
-  addItem, getItems, toggleItem, deleteItem, clearChecked, setAllChecked
+  addItem, getItems, toggleItem, deleteItem, clearChecked, setAllChecked, updateItem
 } from './db.js';
 import { initOCR, recogniseReceipt, isOCRReady } from './ocr.js';
 import { extractItemsFromText } from './parser.js';
@@ -66,6 +66,7 @@ const IconBack = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill
 const IconMore = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>`;
 const IconCamera = () => html`<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`;
 const IconPlus = () => html`<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+const IconMinus = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
 const IconShield = () => html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
 const IconX = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 const IconUpload = () => html`<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`;
@@ -313,12 +314,28 @@ function ListView({ listId, listName: initialName, onBack }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  function parseItemLine(line) {
+    let name = line;
+    let qty = 1;
+
+    const qtyPattern = /^(\d+)x\s+(.+)$|^(.+?)\s+x(\d+)$|^(\d+)\s+(.+)$|^(.+?)\s+\((\d+)\)$/;
+    const match = line.match(qtyPattern);
+
+    if (match) {
+      qty = parseInt(match[1] || match[4] || match[5] || match[8], 10) || 1;
+      name = (match[2] || match[3] || match[6] || match[7] || '').trim();
+    }
+
+    return { name, qty };
+  }
+
   async function handleAdd() {
     const lines = addText.split('\n').map(l => l.trim()).filter(Boolean);
     if (!lines.length) return;
     const existing = new Set(items.map(i => i.name.toLowerCase()));
-    const toAdd = [...new Set(lines)].filter(l => !existing.has(l.toLowerCase()));
-    await Promise.all(toAdd.map(name => addItem(listId, { name })));
+    const toAdd = [...new Set(lines)].map(parseItemLine)
+      .filter(item => item.name && !existing.has(item.name.toLowerCase()));
+    await Promise.all(toAdd.map(item => addItem(listId, { name: item.name, qty: item.qty })));
     setAddText('');
     loadItems();
   }
@@ -341,6 +358,22 @@ function ListView({ listId, listName: initialName, onBack }) {
   async function handleDelete(id) {
     await deleteItem(id);
     loadItems();
+  }
+
+  async function handleIncreaseQty(id) {
+    const item = items.find(i => i.id === id);
+    if (item) {
+      await updateItem(id, { qty: item.qty + 1 });
+      loadItems();
+    }
+  }
+
+  async function handleDecreaseQty(id) {
+    const item = items.find(i => i.id === id);
+    if (item && item.qty > 1) {
+      await updateItem(id, { qty: item.qty - 1 });
+      loadItems();
+    }
   }
 
   async function handleRename(name) {
@@ -465,7 +498,17 @@ function ListView({ listId, listName: initialName, onBack }) {
             <li key=${item.id} class="item-row">
               <${Checkbox} checked=${false} onChange=${() => handleToggle(item.id)}/>
               <span class="item-name mono">${item.name}</span>
-              ${item.qty > 1 && html`<span class="qty-badge">×${item.qty}</span>`}
+              ${item.qty && item.qty !== 1 && html`
+                <div class="qty-controls">
+                  <button class="qty-btn" onClick=${() => handleDecreaseQty(item.id)} title="Decrease quantity">
+                    <${IconMinus}/>
+                  </button>
+                  <span class="qty-display">${item.qty}</span>
+                  <button class="qty-btn" onClick=${() => handleIncreaseQty(item.id)} title="Increase quantity">
+                    <${IconPlus}/>
+                  </button>
+                </div>
+              `}
               <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
               <button class="delete-btn" onClick=${() => handleDelete(item.id)}>
                 <${IconX}/>
@@ -481,7 +524,17 @@ function ListView({ listId, listName: initialName, onBack }) {
               <li key=${item.id} class="item-row checked">
                 <${Checkbox} checked=${true} onChange=${() => handleToggle(item.id)}/>
                 <span class="item-name mono">${item.name}</span>
-                ${item.qty > 1 && html`<span class="qty-badge">×${item.qty}</span>`}
+                ${item.qty && item.qty !== 1 && html`
+                  <div class="qty-controls">
+                    <button class="qty-btn" onClick=${() => handleDecreaseQty(item.id)} title="Decrease quantity">
+                      <${IconMinus}/>
+                    </button>
+                    <span class="qty-display">${item.qty}</span>
+                    <button class="qty-btn" onClick=${() => handleIncreaseQty(item.id)} title="Increase quantity">
+                      <${IconPlus}/>
+                    </button>
+                  </div>
+                `}
                 <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
                 <button class="delete-btn" onClick=${() => handleDelete(item.id)}>
                   <${IconX}/>
@@ -508,7 +561,7 @@ function ListView({ listId, listName: initialName, onBack }) {
           class="add-item-input"
           name="add-item"
           id="add-item"
-          placeholder="Add item... (paste a list to bulk-add)"
+          placeholder="Add item... use '2x item' or 'item (2)' for quantities"
           value=${addText}
           onInput=${e => setAddText(e.target.value)}
           onPaste=${handlePaste}
