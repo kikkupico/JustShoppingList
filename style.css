@@ -442,14 +442,38 @@ body {
 }
 .delete-btn:hover { color: #c0392b; background: #fdf0ef; }
 
-/* Add item input */
-.add-item-bar {
+/* Add button in header */
+.add-header-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 0.28rem 0.65rem 0.28rem 0.45rem;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+  transition: background var(--transition);
+}
+.add-header-btn svg { width: 14px; height: 14px; }
+.add-header-btn:hover { background: #3d6b1f; }
+.add-header-btn.active { background: #1e3a0f; }
+
+/* Add item panel (top) */
+.add-panel {
   background: var(--surface);
-  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   padding: 0.65rem 1rem;
   display: flex;
   gap: 0.5rem;
+  align-items: flex-end;
 }
+
+/* Add item input */
 .add-item-input {
   flex: 1;
   border: 1px solid var(--border);

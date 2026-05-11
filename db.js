@@ -7,7 +7,7 @@ let lsToastShown = false;
 function initDB() {
   if (db) return;
   try {
-    db = new Dexie('CartlyDB');
+    db = new Dexie('JustShoppingListDB');
     db.version(1).stores({
       lists: '++id, name, createdAt, updatedAt',
       items: '++id, listId, name, qty, category, checked, addedFrom',
@@ -28,16 +28,16 @@ function lsGet(key) {
 }
 function lsSet(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 
-function lsLists() { return lsGet('cartly_lists') || []; }
-function lsItems() { return lsGet('cartly_items') || []; }
-function lsSaveLists(v) { lsSet('cartly_lists', v); }
-function lsSaveItems(v) { lsSet('cartly_items', v); }
+function lsLists() { return lsGet('jsl_lists') || []; }
+function lsItems() { return lsGet('jsl_items') || []; }
+function lsSaveLists(v) { lsSet('jsl_lists', v); }
+function lsSaveItems(v) { lsSet('jsl_items', v); }
 function lsNextId(arr) { return arr.length ? Math.max(...arr.map(x => x.id)) + 1 : 1; }
 
 function showLSToast() {
   if (lsToastShown) return;
   lsToastShown = true;
-  window.dispatchEvent(new CustomEvent('cartly-toast', { detail: { msg: 'Storage limited in private mode — data may not persist.' } }));
+  window.dispatchEvent(new CustomEvent('jsl-toast', { detail: { msg: 'Storage limited in private mode — data may not persist.' } }));
 }
 
 export function isUsingLocalStorage() { return usingLocalStorage; }

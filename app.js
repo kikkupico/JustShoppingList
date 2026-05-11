@@ -10,9 +10,18 @@ import { extractItemsFromText } from './parser.js';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
-function fmtDate(iso) {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+function fuzzyMatch(str, query) {
+  const s = str.toLowerCase();
+  const q = query.toLowerCase().trim();
+  if (!q) return true;
+  if (s.includes(q)) return true;
+  let si = 0;
+  for (const ch of q) {
+    const idx = s.indexOf(ch, si);
+    if (idx === -1) return false;
+    si = idx + 1;
+  }
+  return true;
 }
 
 function todayName() {
@@ -85,15 +94,15 @@ function ToastContainer() {
       setToasts(t => [...t, { id, msg: e.detail.msg }]);
       setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
     };
-    window.addEventListener('cartly-toast', handler);
-    return () => window.removeEventListener('cartly-toast', handler);
+    window.addEventListener('jsl-toast', handler);
+    return () => window.removeEventListener('jsl-toast', handler);
   }, []);
 
   return html`<div class="toast-container">${toasts.map(t => html`<div key=${t.id} class="toast">${t.msg}</div>`)}</div>`;
 }
 
 function toast(msg) {
-  window.dispatchEvent(new CustomEvent('cartly-toast', { detail: { msg } }));
+  window.dispatchEvent(new CustomEvent('jsl-toast', { detail: { msg } }));
 }
 
 // ─── Confirm Dialog ────────────────────────────────────────────────────────────
@@ -346,11 +355,11 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [search, setSearch] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
   const [sort, setSort] = useState('manual'); // 'manual' | 'alpha' | 'recent'
   const [editingId, setEditingId] = useState(null);
   const menuRef = useRef(null);
-  const searchRef = useRef(null);
+  const addInputRef = useRef(null);
 
   const loadItems = useCallback(async () => {
     const data = await getItems(listId);
@@ -485,11 +494,10 @@ function ListView({ listId, listName: initialName, onBack }) {
     loadItems();
   }
 
-  function toggleSearch() {
+  function toggleAdd() {
     setShowMenu(false);
-    setShowSearch(v => {
-      if (v) setSearch('');
-      else setTimeout(() => searchRef.current?.focus(), 50);
+    setShowAdd(v => {
+      if (!v) setTimeout(() => addInputRef.current?.focus(), 50);
       return !v;
     });
   }
@@ -514,12 +522,12 @@ function ListView({ listId, listName: initialName, onBack }) {
     }
   }
 
-  const q = search.trim().toLowerCase();
-  const filtered = q ? items.filter(i => i.name.toLowerCase().includes(q)) : items;
+  const q = search.trim();
+  const filtered = q ? items.filter(i => fuzzyMatch(i.name, q)) : items;
   const sorted = filtered.slice().sort((a, b) => {
     if (sort === 'alpha') return a.name.localeCompare(b.name);
     if (sort === 'recent') return (b.lastCheckedAt || '') > (a.lastCheckedAt || '') ? 1 : -1;
-    return 0; // manual: preserve insertion order
+    return b.id - a.id; // manual: newest first
   });
   const unchecked = sorted.filter(i => !i.checked);
   const checked = sorted.filter(i => i.checked);
@@ -543,7 +551,9 @@ function ListView({ listId, listName: initialName, onBack }) {
           <${IconSort}/>
           <span class="sort-label">${{ manual: '', alpha: 'A–Z', recent: 'Recent' }[sort]}</span>
         </button>
-        <button class="icon-btn ${showSearch ? 'active' : ''}" onClick=${toggleSearch} title="Search items"><${IconSearch}/></button>
+        <button class="add-header-btn ${showAdd ? 'active' : ''}" onClick=${toggleAdd} title="Add item">
+          <${IconPlus}/> Add
+        </button>
         <div class="overflow-menu-wrap" ref=${menuRef}>
           <button class="icon-btn" onClick=${() => setShowMenu(v => !v)}><${IconMore}/></button>
           ${showMenu && html`
@@ -558,18 +568,35 @@ function ListView({ listId, listName: initialName, onBack }) {
         </div>
       </div>
 
-      ${showSearch && html`
-        <div class="search-bar">
-          <${IconSearch}/>
-          <input
-            ref=${searchRef}
-            class="search-input"
-            placeholder="Search items..."
-            value=${search}
-            onInput=${e => setSearch(e.target.value)}
-            onKeyDown=${e => e.key === 'Escape' && toggleSearch()}
+      <div class="search-bar">
+        <${IconSearch}/>
+        <input
+          class="search-input"
+          placeholder="Search items..."
+          value=${search}
+          onInput=${e => setSearch(e.target.value)}
+          onKeyDown=${e => e.key === 'Escape' && setSearch('')}
+        />
+        ${search && html`<button class="icon-btn" onClick=${() => setSearch('')}><${IconX}/></button>`}
+      </div>
+
+      ${showAdd && html`
+        <div class="add-panel">
+          <textarea
+            ref=${addInputRef}
+            class="add-item-input"
+            name="add-item"
+            id="add-item"
+            placeholder="Add item... use '2x item' or 'item (2)' for quantities"
+            value=${addText}
+            onInput=${e => setAddText(e.target.value)}
+            onPaste=${handlePaste}
+            onKeyDown=${e => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAdd(); }
+              else if (e.key === 'Escape') setShowAdd(false);
+            }}
           />
-          ${search && html`<button class="icon-btn" onClick=${() => setSearch('')}><${IconX}/></button>`}
+          <button class="add-btn" onClick=${handleAdd}><${IconPlus}/></button>
         </div>
       `}
 
@@ -641,7 +668,7 @@ function ListView({ listId, listName: initialName, onBack }) {
 
         ${items.length === 0 && html`
           <div class="empty-state" style="padding:2rem 0">
-            <p>No items yet — add one below.</p>
+            <p>No items yet — tap Add to get started.</p>
           </div>
         `}
         ${items.length > 0 && visible.length === 0 && html`
@@ -649,20 +676,6 @@ function ListView({ listId, listName: initialName, onBack }) {
             <p>No items match "${search}".</p>
           </div>
         `}
-      </div>
-
-      <div class="add-item-bar">
-        <textarea
-          class="add-item-input"
-          name="add-item"
-          id="add-item"
-          placeholder="Add item... use '2x item' or 'item (2)' for quantities"
-          value=${addText}
-          onInput=${e => setAddText(e.target.value)}
-          onPaste=${handlePaste}
-          onKeyDown=${e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAdd(); } }}
-        />
-        <button class="add-btn" onClick=${handleAdd}><${IconPlus}/></button>
       </div>
 
       <button class="fab" onClick=${() => setShowReceipt(true)} title="Scan receipt">
@@ -733,7 +746,7 @@ function ListsScreen({ onOpen }) {
     <div>
       <header class="app-header">
         <div class="header-left">
-          <span class="wordmark">Cartly</span>
+          <span class="wordmark">JustShoppingList</span>
         </div>
         <div class="header-right">
           <${IconLock}/>
