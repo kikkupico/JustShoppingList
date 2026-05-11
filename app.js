@@ -285,6 +285,58 @@ function ReceiptModal({ listId, onClose, onAdded }) {
   `;
 }
 
+// ─── EditableItem ──────────────────────────────────────────────────────────────
+
+function EditableItem({ item, onSave, onCancel }) {
+  const [name, setName] = useState(item.name);
+  const [qty, setQty] = useState(item.qty || 1);
+  const nameRef = useRef(null);
+  const qtyRef = useRef(null);
+
+  useEffect(() => {
+    nameRef.current?.focus();
+    nameRef.current?.select();
+  }, []);
+
+  async function handleSave() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      onCancel();
+      return;
+    }
+    await onSave({ name: trimmed, qty: Math.max(1, parseInt(qty) || 1) });
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') handleSave();
+    else if (e.key === 'Escape') onCancel();
+  }
+
+  return html`
+    <div class="edit-item-inputs">
+      <input
+        ref=${nameRef}
+        class="item-name-edit"
+        type="text"
+        value=${name}
+        onInput=${e => setName(e.target.value)}
+        onBlur=${handleSave}
+        onKeyDown=${handleKeyDown}
+      />
+      <input
+        ref=${qtyRef}
+        class="item-qty-edit"
+        type="number"
+        min="1"
+        value=${qty}
+        onInput=${e => setQty(e.target.value)}
+        onBlur=${handleSave}
+        onKeyDown=${handleKeyDown}
+      />
+    </div>
+  `;
+}
+
 // ─── ListView ──────────────────────────────────────────────────────────────────
 
 function ListView({ listId, listName: initialName, onBack }) {
@@ -296,6 +348,7 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [sort, setSort] = useState('manual'); // 'manual' | 'alpha' | 'recent'
+  const [editingId, setEditingId] = useState(null);
   const menuRef = useRef(null);
   const searchRef = useRef(null);
 
@@ -374,6 +427,38 @@ function ListView({ listId, listName: initialName, onBack }) {
       await updateItem(id, { qty: item.qty - 1 });
       loadItems();
     }
+  }
+
+  async function handleSaveEdit(id, { name, qty }) {
+    const currentItem = items.find(i => i.id === id);
+    if (!currentItem) return;
+
+    const newName = name.toLowerCase().trim();
+    const currentName = currentItem.name.toLowerCase().trim();
+
+    if (newName === currentName) {
+      if (qty !== currentItem.qty) {
+        await updateItem(id, { qty });
+      }
+      setEditingId(null);
+      loadItems();
+      return;
+    }
+
+    const existingItem = items.find(i =>
+      i.id !== id && i.name.toLowerCase().trim() === newName && i.checked === currentItem.checked
+    );
+
+    if (existingItem) {
+      await updateItem(existingItem.id, { qty: existingItem.qty + qty });
+      await deleteItem(id);
+      toast(`Merged with "${existingItem.name}"`);
+    } else {
+      await updateItem(id, { name, qty });
+    }
+
+    setEditingId(null);
+    loadItems();
   }
 
   async function handleRename(name) {
@@ -495,20 +580,25 @@ function ListView({ listId, listName: initialName, onBack }) {
       <div class="screen list-scroll-area">
         <ul class="items-list">
           ${unchecked.map(item => html`
-            <li key=${item.id} class="item-row">
+            <li key=${item.id} class="item-row ${editingId === item.id ? 'editing' : ''}">
               <${Checkbox} checked=${false} onChange=${() => handleToggle(item.id)}/>
-              <span class="item-name mono">${item.name}</span>
-              ${item.qty && item.qty !== 1 && html`
-                <div class="qty-controls">
-                  <button class="qty-btn" onClick=${() => handleDecreaseQty(item.id)} title="Decrease quantity">
-                    <${IconMinus}/>
-                  </button>
-                  <span class="qty-display">${item.qty}</span>
-                  <button class="qty-btn" onClick=${() => handleIncreaseQty(item.id)} title="Increase quantity">
-                    <${IconPlus}/>
-                  </button>
-                </div>
-              `}
+              ${editingId === item.id
+                ? html`<${EditableItem} item=${item} onSave=${(changes) => handleSaveEdit(item.id, changes)} onCancel=${() => setEditingId(null)}/>`
+                : html`
+                  <span class="item-name mono" onClick=${() => setEditingId(item.id)}>${item.name}</span>
+                  ${item.qty && item.qty !== 1 && html`
+                    <div class="qty-controls">
+                      <button class="qty-btn" onClick=${() => handleDecreaseQty(item.id)} title="Decrease quantity">
+                        <${IconMinus}/>
+                      </button>
+                      <span class="qty-display">${item.qty}</span>
+                      <button class="qty-btn" onClick=${() => handleIncreaseQty(item.id)} title="Increase quantity">
+                        <${IconPlus}/>
+                      </button>
+                    </div>
+                  `}
+                `
+              }
               <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
               <button class="delete-btn" onClick=${() => handleDelete(item.id)}>
                 <${IconX}/>
@@ -521,20 +611,25 @@ function ListView({ listId, listName: initialName, onBack }) {
           <p class="section-label">Checked (${checkedCount})</p>
           <ul class="items-list">
             ${checked.map(item => html`
-              <li key=${item.id} class="item-row checked">
+              <li key=${item.id} class="item-row checked ${editingId === item.id ? 'editing' : ''}">
                 <${Checkbox} checked=${true} onChange=${() => handleToggle(item.id)}/>
-                <span class="item-name mono">${item.name}</span>
-                ${item.qty && item.qty !== 1 && html`
-                  <div class="qty-controls">
-                    <button class="qty-btn" onClick=${() => handleDecreaseQty(item.id)} title="Decrease quantity">
-                      <${IconMinus}/>
-                    </button>
-                    <span class="qty-display">${item.qty}</span>
-                    <button class="qty-btn" onClick=${() => handleIncreaseQty(item.id)} title="Increase quantity">
-                      <${IconPlus}/>
-                    </button>
-                  </div>
-                `}
+                ${editingId === item.id
+                  ? html`<${EditableItem} item=${item} onSave=${(changes) => handleSaveEdit(item.id, changes)} onCancel=${() => setEditingId(null)}/>`
+                  : html`
+                    <span class="item-name mono" onClick=${() => setEditingId(item.id)}>${item.name}</span>
+                    ${item.qty && item.qty !== 1 && html`
+                      <div class="qty-controls">
+                        <button class="qty-btn" onClick=${() => handleDecreaseQty(item.id)} title="Decrease quantity">
+                          <${IconMinus}/>
+                        </button>
+                        <span class="qty-display">${item.qty}</span>
+                        <button class="qty-btn" onClick=${() => handleIncreaseQty(item.id)} title="Increase quantity">
+                          <${IconPlus}/>
+                        </button>
+                      </div>
+                    `}
+                  `
+                }
                 <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
                 <button class="delete-btn" onClick=${() => handleDelete(item.id)}>
                   <${IconX}/>

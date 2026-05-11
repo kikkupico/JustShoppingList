@@ -336,6 +336,50 @@ body {
   font-size: 0.875rem;
   min-width: 0;
   word-break: break-word;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: 3px;
+  transition: background var(--transition);
+}
+.item-name:hover {
+  background: var(--bg);
+}
+
+.edit-item-inputs {
+  display: flex;
+  flex: 1;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.item-name-edit {
+  flex: 1;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.875rem;
+  border: 1px solid var(--primary);
+  border-radius: 3px;
+  padding: 0.3rem 0.4rem;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  min-width: 0;
+}
+
+.item-qty-edit {
+  width: 3rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.875rem;
+  border: 1px solid var(--primary);
+  border-radius: 3px;
+  padding: 0.3rem 0.4rem;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  text-align: center;
+}
+
+.item-row.editing {
+  background: var(--bg);
 }
 .qty-badge {
   font-size: 0.7rem;
