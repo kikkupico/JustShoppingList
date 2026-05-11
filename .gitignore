@@ -1,0 +1,4 @@
+node_modules/
+eng.traineddata
+tests/benchmark-*.json
+.claude/

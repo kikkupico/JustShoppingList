@@ -1,17 +1,17 @@
 {
   "items": [
     {
-      "name": "Ibuprofen 200Mg 100Ct",
+      "name": "Ibuprofen 100Count",
       "qty": 1,
       "category": "other"
     },
     {
-      "name": "Diphenhydramine 25Mg",
+      "name": "Diphenhydramine",
       "qty": 1,
       "category": "other"
     },
     {
-      "name": "Cough Syrup Dm 8 oz",
+      "name": "Cough Syrup Dm",
       "qty": 1,
       "category": "other",
       "weight": "8oz"
@@ -22,19 +22,19 @@
       "category": "other"
     },
     {
-      "name": "Kleenex Tissue 3Pk",
+      "name": "Kleenex Tissue",
       "qty": 1,
       "category": "household"
     },
     {
-      "name": "Tampons Super 36Ct",
+      "name": "Tampons Super 36Count",
       "qty": 1,
       "category": "other"
     },
     {
-      "name": "Advil Cola Sinus 20Ct",
+      "name": "Advil Cold Sinus 20Count",
       "qty": 1,
-      "category": "drinks"
+      "category": "other"
     },
     {
       "name": "Daily Vitamin Gummie",
@@ -42,7 +42,7 @@
       "category": "other"
     },
     {
-      "name": "Sunscreen Spf 50 8 oz",
+      "name": "Sunscreen Spf",
       "qty": 1,
       "category": "household",
       "weight": "8oz"
@@ -58,17 +58,17 @@
       "category": "household"
     },
     {
-      "name": "Protein Snack Bar 5Pk",
+      "name": "Protein Snack Bar",
       "qty": 1,
       "category": "other"
     },
     {
-      "name": "Trash Bags 13 Gallon 60Ct",
+      "name": "Trash Bags 60Count",
       "qty": 1,
       "category": "household"
     },
     {
-      "name": "Batteries Aa 8Pk",
+      "name": "Batteries Aa",
       "qty": 1,
       "category": "household"
     }

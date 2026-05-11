@@ -1,5 +1,7 @@
 {
+  "type": "module",
   "dependencies": {
+    "compromise": "^14.15.0",
     "tesseract.js": "^7.0.0"
   }
 }

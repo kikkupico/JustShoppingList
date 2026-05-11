@@ -1,3 +1,5 @@
+import nlp from 'compromise';
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 // Footer / non-item words. Anchors a line as "not an item" regardless of price.
@@ -29,12 +31,12 @@ const ABBREVIATIONS = {
   MLK: 'Milk', WHL: 'Whole', SKM: 'Skim', CHZ: 'Cheese', YGT: 'Yogurt',
   YOG: 'Yogurt', BTR: 'Butter', CRM: 'Cream', CHED: 'Cheddar', MOZZ: 'Mozzarella',
   // Produce
-  BNN: 'Banana', BNNS: 'Bananas', APL: 'Apple', APLS: 'Apples',
+  BNN: 'Banana', BNNS: 'Bananas', APL: 'Apple', APPL: 'Apple', APLS: 'Apples',
   TOM: 'Tomato', POT: 'Potato', CAR: 'Carrot', LET: 'Lettuce', CUC: 'Cucumber',
-  BRC: 'Broccoli', CAUL: 'Cauliflower', SPN: 'Spinach', AVO: 'Avocado',
+  BRC: 'Broccoli', CAUL: 'Cauliflower', SPN: 'Spinach', SPNCH: 'Spinach', AVO: 'Avocado',
   LMN: 'Lemon', LME: 'Lime', GRP: 'Grape', STRW: 'Strawberry', BLU: 'Blueberry',
   // Meat / seafood
-  CHK: 'Chicken', CHKN: 'Chicken', BF: 'Beef', PRK: 'Pork', BCN: 'Bacon',
+  CHK: 'Chicken', CHKN: 'Chicken', CHX: 'Chicken', BF: 'Beef', PRK: 'Pork', BCN: 'Bacon',
   HM: 'Ham', TKY: 'Turkey', SAU: 'Sausage', SLM: 'Salmon', TUNA: 'Tuna',
   // Bakery
   BRD: 'Bread', BGL: 'Bagel', MFN: 'Muffin', CRSNT: 'Croissant',
@@ -45,8 +47,8 @@ const ABBREVIATIONS = {
   WTR: 'Water', JUI: 'Juice', SDA: 'Soda', COFF: 'Coffee',
   // Qualifiers / sizes / units
   ORG: 'Organic', LRG: 'Large', XL: 'Extra Large', MED: 'Medium',
-  PKG: 'Package', CTN: 'Carton', FRZ: 'Frozen', FRSH: 'Fresh', NAT: 'Natural',
-  GR: 'g', GRM: 'g', LTR: 'L', GAL: 'Gallon',
+  PKG: 'Package', CT: 'Count', CTN: 'Carton', FRZ: 'Frozen', FRSH: 'Fresh', NAT: 'Natural',
+  GR: 'g', GRM: 'g', LTR: 'L', GAL: 'Gallon', DZ: 'Dozen',
   // Household
   TP: 'Toilet Paper', DET: 'Detergent', SHMP: 'Shampoo', COND: 'Conditioner',
   TPST: 'Toothpaste', TBR: 'Toothbrush',
@@ -82,12 +84,12 @@ const CATEGORY_KEYWORDS = {
   seafood: [
     'fish','salmon','tuna','shrimp','cod','tilapia','trout','halibut','sardine',
     'anchovy','crab','lobster','scallop','mussel','oyster','clam','calamari',
-    'squid','prawn',
+    'squid','prawn','gyoza',
   ],
   bakery: [
     'bread','bagel','muffin','croissant','biscuit','donut','doughnut','pastry',
     'pie','cake','brownie','baguette','pita','tortilla','naan','scone','bun',
-    'sourdough','focaccia',
+    'sourdough','focaccia','crust','ravioli',
   ],
   frozen: [
     'frozen','ice cream','gelato','sorbet','popsicle','frozen pizza',
@@ -115,6 +117,23 @@ const CATEGORY_KEYWORDS = {
     'olive','sesame','peanut butter','tofu','hummus','pickle','relish',
   ],
 };
+
+// ─── NLP Setup ────────────────────────────────────────────────────────────────
+
+// Register abbreviations and receipt-specific terms in compromise
+nlp.extend((Doc, world) => {
+  const words = {};
+  for (const [abbr, full] of Object.entries(ABBREVIATIONS)) {
+    words[abbr.toLowerCase()] = 'Abbreviation';
+    // If the expansion is multiple words, tag it as a Noun phrase
+    if (full.includes(' ')) words[full.toLowerCase()] = 'Noun';
+  }
+  // Common OCR fragments and units
+  const units = ['lb', 'lbs', 'oz', 'kg', 'g', 'ml', 'l', 'ct', 'pk', 'pck', 'gal', 'gallon'];
+  for (const u of units) words[u.toLowerCase()] = 'Unit';
+  
+  world.addWords(words);
+});
 
 // ─── Fuzzy-match lexicon ──────────────────────────────────────────────────────
 // Single-word entries from the dictionaries above, length ≥ 4, deduped.
@@ -171,7 +190,17 @@ function dlDistance(a, b, maxDist) {
 function fuzzyMatch(token) {
   const lower = token.toLowerCase();
   if (lower.length < 4) return null;
-  // Allow more edits for longer tokens
+  
+  // NLP Check: If compromise already knows this word as a valid English word
+  // (noun, adjective, verb, etc.), do NOT fuzzy match it to something else.
+  // This prevents "COLD" (Adjective) matching "COLA" (Noun).
+  const doc = nlp(lower);
+  if (doc.terms().length === 1) {
+    const tags = doc.json()[0].terms[0].tags;
+    const isKnown = tags.some(t => ['Noun', 'Adjective', 'Verb', 'Value', 'Unit', 'Abbreviation'].includes(t));
+    if (isKnown) return lower;
+  }
+
   const maxDist = lower.length >= 8 ? 2 : 1;
   if (LEXICON.includes(lower)) return lower;
   let best = null, bestDist = maxDist + 1;
@@ -283,16 +312,34 @@ function looksLikeItemLine(line) {
 // ─── Item construction ────────────────────────────────────────────────────────
 
 function categorize(name) {
-  const lower = name.toLowerCase();
+  const doc = nlp(name);
+  
+  // Try to find the "head" of the product phrase. 
+  // Usually the last noun or the last term.
+  const head = doc.nouns().last().text() || doc.last().text();
+  const headDoc = nlp(head);
+  headDoc.normalize({ plurals: true, case: true });
+
+  // Pass 1: Match on head word (strongest signal)
   for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
     if (cat === 'other') continue;
     for (const kw of keywords) {
-      if (lower.includes(kw)) return cat;
+      if (headDoc.has(kw)) return cat;
     }
   }
-  // 'other' category falls through to a final pass so e.g. "rice" still matches
+
+  // Pass 2: Match on whole doc
+  doc.normalize({ plurals: true, case: true });
+  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (cat === 'other') continue;
+    for (const kw of keywords) {
+      if (doc.has(kw)) return cat;
+    }
+  }
+
+  // Final fallback for 'other' keywords
   for (const kw of CATEGORY_KEYWORDS.other) {
-    if (lower.includes(kw)) return 'other';
+    if (doc.has(kw)) return 'other';
   }
   return 'other';
 }
@@ -320,7 +367,16 @@ function processItemLine(rawText) {
 
   // Token-level expansion + fuzzy correction
   const expanded = afterQty.split(/\s+/).map(expandToken).join(' ');
-  let name = titleCase(expanded).replace(/\s+/g, ' ').trim();
+  
+  // NLP cleaning: remove units, values, and extraneous numbers
+  const doc = nlp(expanded);
+  doc.values().remove();
+  // Remove common unit tokens if not caught by .values()
+  doc.match('(lb|lbs|oz|kg|g|ml|l|ct|pk|pck|gal|gallon|oz)').remove();
+  // Remove price-like things if any left (e.g. "@ 2.49/lb")
+  doc.match('@? [0-9./]+').remove();
+  
+  let name = titleCase(doc.text()).replace(/\s+/g, ' ').trim();
   if (name.length < 2) return null;
 
   const item = { name, qty, category: categorize(name) };

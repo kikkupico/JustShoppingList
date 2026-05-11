@@ -1,14 +1,14 @@
 {
   "items": [
     {
-      "name": "Milk Whole 2% 1L",
+      "name": "Milk Whole",
       "qty": 1,
       "category": "dairy"
     },
     {
-      "name": "Bananas 0.65kg",
+      "name": "Bnanas",
       "qty": 1,
-      "category": "produce",
+      "category": "other",
       "weight": "0.65kg"
     },
     {
@@ -24,12 +24,12 @@
     {
       "name": "Apples Honeycrisp",
       "qty": 1,
-      "category": "produce"
+      "category": "other"
     },
     {
-      "name": "Organic Spinach",
+      "name": "Organic Spnach",
       "qty": 1,
-      "category": "produce"
+      "category": "other"
     },
     {
       "name": "Eggs Large Doz",
@@ -42,17 +42,17 @@
       "category": "drinks"
     },
     {
-      "name": "Toilet Paper 12Pk",
+      "name": "Toilet Paper",
       "qty": 1,
       "category": "household"
     },
     {
-      "name": "Milk Skim 2L",
+      "name": "Milk Skim",
       "qty": 1,
       "category": "dairy"
     },
     {
-      "name": "Coke 12Pk",
+      "name": "Coke",
       "qty": 1,
       "category": "drinks"
     }

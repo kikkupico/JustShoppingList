@@ -1,7 +1,7 @@
 {
   "items": [
     {
-      "name": "Organic Blueberry 3Lb",
+      "name": "Organic Blueberry",
       "qty": 1,
       "category": "produce",
       "weight": "3lb"
@@ -12,29 +12,29 @@
       "category": "meat"
     },
     {
-      "name": "Greek Yogurt 32 oz",
+      "name": "Greek Yogurt",
       "qty": 2,
       "category": "dairy",
       "weight": "32oz"
     },
     {
-      "name": "Cake Free Eggs 5 Dz",
+      "name": "Cage Free Eggs Dozen",
       "qty": 1,
       "category": "dairy"
     },
     {
-      "name": "Albacore Tuna 5 Cans",
+      "name": "Albacore Tuna Cans",
       "qty": 1,
       "category": "seafood"
     },
     {
-      "name": "Olive Oil Extra Vrg 51Oz",
+      "name": "Olive Oil Extra Vrg Sioz",
       "qty": 1,
       "category": "other",
       "weight": "51oz"
     },
     {
-      "name": "Almond Butter 26 oz",
+      "name": "Almond Butter",
       "qty": 1,
       "category": "dairy",
       "weight": "26oz"
@@ -45,37 +45,37 @@
       "category": "other"
     },
     {
-      "name": "Wild Salmon Fillt 1.85Lb",
+      "name": "Wild Salmon Fillt",
       "qty": 1,
       "category": "seafood",
       "weight": "1.85lb"
     },
     {
-      "name": "Broccoli Crowns 3 lb",
+      "name": "Broccoli Crowns",
       "qty": 1,
       "category": "produce",
       "weight": "3lb"
     },
     {
-      "name": "Rotini Pasta Bulk 3Lb",
+      "name": "Rotini Pasta Bulk",
       "qty": 1,
       "category": "other",
       "weight": "3lb"
     },
     {
-      "name": "Frozen Berries 3Lb Mix",
+      "name": "Frozen Berries Mix",
       "qty": 1,
       "category": "frozen",
       "weight": "3lb"
     },
     {
-      "name": "Butter Salted 4 lb",
+      "name": "Butter Salted",
       "qty": 1,
       "category": "dairy",
       "weight": "4lb"
     },
     {
-      "name": "Mushroom Medley 1 lb",
+      "name": "Mushroom Medley",
       "qty": 1,
       "category": "produce",
       "weight": "1lb"

@@ -1,19 +1,19 @@
 {
   "items": [
     {
-      "name": "Organic Fuji Apple 3lb",
+      "name": "Organic Fuji Apple",
       "qty": 1,
       "category": "produce",
       "weight": "3lb"
     },
     {
-      "name": "Organic Baby Spnch 5 oz",
+      "name": "Organic Baby Spinach",
       "qty": 1,
-      "category": "other",
+      "category": "produce",
       "weight": "5oz"
     },
     {
-      "name": "Grass Fed Beef G 1.23 lb",
+      "name": "Grass Fed Beef",
       "qty": 1,
       "category": "meat",
       "weight": "1.23lb"
@@ -24,39 +24,39 @@
       "category": "seafood"
     },
     {
-      "name": "Organic Kombucha Ginger 4Pk",
+      "name": "Organic Kombucha Ginger",
       "qty": 1,
       "category": "drinks"
     },
     {
-      "name": "Whole G Spelt Bread",
+      "name": "Whole Spelt Bread",
       "qty": 1,
       "category": "bakery"
     },
     {
-      "name": "Bulk Mixed Nuts 0.78 lb",
+      "name": "Bulk Mixed Nuts",
       "qty": 1,
       "category": "other",
       "weight": "0.78lb"
     },
     {
-      "name": "Hippeas Snack Chx Pea",
+      "name": "Hippeas Snack Chicken Pea",
       "qty": 1,
-      "category": "other"
+      "category": "meat"
     },
     {
-      "name": "Raw Honey Local 12 oz",
+      "name": "Raw Honey Local",
       "qty": 1,
       "category": "other",
       "weight": "12oz"
     },
     {
-      "name": "Almond Milk Unsw 1/2 Gallon",
+      "name": "Almond Milk Unsw",
       "qty": 1,
       "category": "dairy"
     },
     {
-      "name": "Organic Kale Salad 5 oz",
+      "name": "Organic Kale Salad",
       "qty": 1,
       "category": "produce",
       "weight": "5oz"

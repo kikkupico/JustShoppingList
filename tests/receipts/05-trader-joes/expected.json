@@ -13,7 +13,7 @@
     {
       "name": "Butternut Squash Ravioli",
       "qty": 1,
-      "category": "dairy"
+      "category": "produce"
     },
     {
       "name": "Cauliflower Pizza Crust",
@@ -36,12 +36,12 @@
       "category": "other"
     },
     {
-      "name": "Sprout Grain Bread",
+      "name": "Sprouted Grain Bread",
       "qty": 1,
-      "category": "produce"
+      "category": "bakery"
     },
     {
-      "name": "Coconut Shrimp Gyoza 10Ct",
+      "name": "Coconut Shrimp Gyoza 10Count",
       "qty": 1,
       "category": "seafood"
     },
@@ -51,19 +51,19 @@
       "category": "other"
     },
     {
-      "name": "Greek Yogurt Honey 32Oz",
+      "name": "Greek Yogurt Honey",
       "qty": 1,
       "category": "dairy",
       "weight": "32oz"
     },
     {
-      "name": "Kombucha Ginger 16 oz Can",
+      "name": "Kombucha Ginger Can",
       "qty": 1,
       "category": "drinks",
       "weight": "16oz"
     },
     {
-      "name": "Maple Pecan Granola 12Oz",
+      "name": "Maple Pecan Granola",
       "qty": 1,
       "category": "snacks",
       "weight": "12oz"
@@ -71,7 +71,7 @@
     {
       "name": "Chocolate Chip Cookies",
       "qty": 1,
-      "category": "drinks"
+      "category": "snacks"
     },
     {
       "name": "Chai Latte Concentrate",
