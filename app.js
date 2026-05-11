@@ -6,7 +6,7 @@ import {
   addItem, getItems, toggleItem, deleteItem, clearChecked, setAllChecked, updateItem
 } from './db.js';
 import { initOCR, recogniseReceipt, isOCRReady } from './ocr.js';
-import { extractItemsFromText } from './parser.js';
+import { extractItemsFromText, categorize } from './parser.js';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -346,6 +346,81 @@ function EditableItem({ item, onSave, onCancel }) {
   `;
 }
 
+// ─── ItemRow ──────────────────────────────────────────────────────────────────
+
+function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onIncrease, onDecrease, onSaveEdit, onCancelEdit }) {
+  const [startX, setStartX] = useState(0);
+  const [currentX, setCurrentX] = useState(0);
+  const [swiping, setSwiping] = useState(false);
+
+  function handleTouchStart(e) {
+    if (editingId === item.id) return;
+    setStartX(e.touches[0].clientX);
+    setSwiping(true);
+  }
+
+  function handleTouchMove(e) {
+    if (!swiping) return;
+    const diff = e.touches[0].clientX - startX;
+    setCurrentX(diff);
+  }
+
+  function handleTouchEnd() {
+    if (!swiping) return;
+    setSwiping(false);
+    if (currentX > 70) {
+      onToggle(item.id);
+    } else if (currentX < -70) {
+      onDelete(item.id);
+    }
+    setCurrentX(0);
+  }
+
+  const offset = swiping ? Math.max(-100, Math.min(100, currentX)) : 0;
+  const showCheck = currentX > 10;
+  const showDelete = currentX < -10;
+
+  return html`
+    <li class="item-row ${item.checked ? 'checked' : ''} ${swiping ? 'swiping' : ''} ${editingId === item.id ? 'editing' : ''}"
+        onTouchStart=${handleTouchStart}
+        onTouchMove=${handleTouchMove}
+        onTouchEnd=${handleTouchEnd}>
+      <div class="swipe-bg">
+        <div class="swipe-action swipe-check" style="opacity: ${showCheck ? 1 : 0}">
+          <${IconPlus}/>
+        </div>
+        <div class="swipe-action swipe-delete" style="opacity: ${showDelete ? 1 : 0}">
+          <${IconX}/>
+        </div>
+      </div>
+      <div class="item-row-content" style="transform: translateX(${offset}px)">
+        <${Checkbox} checked=${item.checked} onChange=${() => onToggle(item.id)}/>
+        ${editingId === item.id
+          ? html`<${EditableItem} item=${item} onSave=${(changes) => onSaveEdit(item.id, changes)} onCancel=${onCancelEdit}/>`
+          : html`
+            <span class="item-name mono" onClick=${() => onEdit(item.id)}>${item.name}</span>
+            ${item.qty && item.qty !== 1 && html`
+              <div class="qty-controls">
+                <button class="qty-btn" onClick=${() => onDecrease(item.id)} title="Decrease quantity">
+                  <${IconMinus}/>
+                </button>
+                <span class="qty-display">${item.qty}</span>
+                <button class="qty-btn" onClick=${() => onIncrease(item.id)} title="Increase quantity">
+                  <${IconPlus}/>
+                </button>
+              </div>
+            `}
+          `
+        }
+        <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
+        <button class="delete-btn" onClick=${() => onDelete(item.id)}>
+          <${IconX}/>
+        </button>
+      </div>
+    </li>
+  `;
+}
+
 // ─── ListView ──────────────────────────────────────────────────────────────────
 
 function ListView({ listId, listName: initialName, onBack }) {
@@ -356,15 +431,13 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [showReceipt, setShowReceipt] = useState(false);
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
-  const [sort, setSort] = useState('manual'); // 'manual' | 'alpha' | 'recent'
-  const [editingId, setEditingId] = useState(null);
-  const menuRef = useRef(null);
-  const addInputRef = useRef(null);
+  const [sort, setSort] = useState('manual'); // 'manual' | 'alpha' | 'recent' | 'category'
 
   const loadItems = useCallback(async () => {
     const data = await getItems(listId);
     setItems(data);
   }, [listId]);
+
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
@@ -397,7 +470,11 @@ function ListView({ listId, listName: initialName, onBack }) {
     const existing = new Set(items.map(i => i.name.toLowerCase()));
     const toAdd = [...new Set(lines)].map(parseItemLine)
       .filter(item => item.name && !existing.has(item.name.toLowerCase()));
-    await Promise.all(toAdd.map(item => addItem(listId, { name: item.name, qty: item.qty })));
+    await Promise.all(toAdd.map(item => addItem(listId, {
+      name: item.name,
+      qty: item.qty,
+      category: categorize(item.name)
+    })));
     setAddText('');
     loadItems();
   }
@@ -463,7 +540,7 @@ function ListView({ listId, listName: initialName, onBack }) {
       await deleteItem(id);
       toast(`Merged with "${existingItem.name}"`);
     } else {
-      await updateItem(id, { name, qty });
+      await updateItem(id, { name, qty, category: categorize(name) });
     }
 
     setEditingId(null);
@@ -527,6 +604,12 @@ function ListView({ listId, listName: initialName, onBack }) {
   const sorted = filtered.slice().sort((a, b) => {
     if (sort === 'alpha') return a.name.localeCompare(b.name);
     if (sort === 'recent') return (b.lastCheckedAt || '') > (a.lastCheckedAt || '') ? 1 : -1;
+    if (sort === 'category') {
+      const catA = a.category || 'other';
+      const catB = b.category || 'other';
+      if (catA !== catB) return catA.localeCompare(catB);
+      return a.name.localeCompare(b.name);
+    }
     return b.id - a.id; // manual: newest first
   });
   const unchecked = sorted.filter(i => !i.checked);
@@ -546,10 +629,10 @@ function ListView({ listId, listName: initialName, onBack }) {
           onKeyDown=${e => e.key === 'Enter' && e.target.blur()}
         />
         <button class="icon-btn sort-btn ${sort !== 'manual' ? 'active' : ''}"
-          onClick=${() => setSort(s => s === 'manual' ? 'alpha' : s === 'alpha' ? 'recent' : 'manual')}
-          title=${{ manual: 'Sort: manual', alpha: 'Sort: A–Z', recent: 'Sort: last used' }[sort]}>
+          onClick=${() => setSort(s => s === 'manual' ? 'alpha' : s === 'alpha' ? 'recent' : s === 'recent' ? 'category' : 'manual')}
+          title=${{ manual: 'Sort: manual', alpha: 'Sort: A–Z', recent: 'Sort: last used', category: 'Sort: Category' }[sort]}>
           <${IconSort}/>
-          <span class="sort-label">${{ manual: '', alpha: 'A–Z', recent: 'Recent' }[sort]}</span>
+          <span class="sort-label">${{ manual: '', alpha: 'A–Z', recent: 'Recent', category: 'Category' }[sort]}</span>
         </button>
         <button class="add-header-btn ${showAdd ? 'active' : ''}" onClick=${toggleAdd} title="Add item">
           <${IconPlus}/> Add
@@ -606,63 +689,47 @@ function ListView({ listId, listName: initialName, onBack }) {
 
       <div class="screen list-scroll-area">
         <ul class="items-list">
-          ${unchecked.map(item => html`
-            <li key=${item.id} class="item-row ${editingId === item.id ? 'editing' : ''}">
-              <${Checkbox} checked=${false} onChange=${() => handleToggle(item.id)}/>
-              ${editingId === item.id
-                ? html`<${EditableItem} item=${item} onSave=${(changes) => handleSaveEdit(item.id, changes)} onCancel=${() => setEditingId(null)}/>`
-                : html`
-                  <span class="item-name mono" onClick=${() => setEditingId(item.id)}>${item.name}</span>
-                  ${item.qty && item.qty !== 1 && html`
-                    <div class="qty-controls">
-                      <button class="qty-btn" onClick=${() => handleDecreaseQty(item.id)} title="Decrease quantity">
-                        <${IconMinus}/>
-                      </button>
-                      <span class="qty-display">${item.qty}</span>
-                      <button class="qty-btn" onClick=${() => handleIncreaseQty(item.id)} title="Increase quantity">
-                        <${IconPlus}/>
-                      </button>
-                    </div>
-                  `}
-                `
-              }
-              <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
-              <button class="delete-btn" onClick=${() => handleDelete(item.id)}>
-                <${IconX}/>
-              </button>
-            </li>
-          `)}
+          ${unchecked.map((item, idx) => {
+            const showHeader = sort === 'category' && (idx === 0 || item.category !== unchecked[idx-1].category);
+            return html`
+              ${showHeader && html`<li class="category-header">${item.category || 'other'}</li>`}
+              <${ItemRow}
+                key=${item.id}
+                item=${item}
+                editingId=${editingId}
+                onToggle=${handleToggle}
+                onEdit=${setEditingId}
+                onDelete=${handleDelete}
+                onIncrease=${handleIncreaseQty}
+                onDecrease=${handleDecreaseQty}
+                onSaveEdit=${handleSaveEdit}
+                onCancelEdit=${() => setEditingId(null)}
+              />
+            `;
+          })}
         </ul>
 
         ${checked.length > 0 && html`
           <p class="section-label">Checked (${checkedCount})</p>
           <ul class="items-list">
-            ${checked.map(item => html`
-              <li key=${item.id} class="item-row checked ${editingId === item.id ? 'editing' : ''}">
-                <${Checkbox} checked=${true} onChange=${() => handleToggle(item.id)}/>
-                ${editingId === item.id
-                  ? html`<${EditableItem} item=${item} onSave=${(changes) => handleSaveEdit(item.id, changes)} onCancel=${() => setEditingId(null)}/>`
-                  : html`
-                    <span class="item-name mono" onClick=${() => setEditingId(item.id)}>${item.name}</span>
-                    ${item.qty && item.qty !== 1 && html`
-                      <div class="qty-controls">
-                        <button class="qty-btn" onClick=${() => handleDecreaseQty(item.id)} title="Decrease quantity">
-                          <${IconMinus}/>
-                        </button>
-                        <span class="qty-display">${item.qty}</span>
-                        <button class="qty-btn" onClick=${() => handleIncreaseQty(item.id)} title="Increase quantity">
-                          <${IconPlus}/>
-                        </button>
-                      </div>
-                    `}
-                  `
-                }
-                <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
-                <button class="delete-btn" onClick=${() => handleDelete(item.id)}>
-                  <${IconX}/>
-                </button>
-              </li>
-            `)}
+            ${checked.map((item, idx) => {
+              const showHeader = sort === 'category' && (idx === 0 || item.category !== checked[idx-1].category);
+              return html`
+                ${showHeader && html`<li class="category-header">${item.category || 'other'}</li>`}
+                <${ItemRow}
+                  key=${item.id}
+                  item=${item}
+                  editingId=${editingId}
+                  onToggle=${handleToggle}
+                  onEdit=${setEditingId}
+                  onDelete=${handleDelete}
+                  onIncrease=${handleIncreaseQty}
+                  onDecrease=${handleDecreaseQty}
+                  onSaveEdit=${handleSaveEdit}
+                  onCancelEdit=${() => setEditingId(null)}
+                />
+              `;
+            })}
           </ul>
         `}
 

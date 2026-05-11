@@ -311,7 +311,7 @@ function looksLikeItemLine(line) {
 
 // ─── Item construction ────────────────────────────────────────────────────────
 
-function categorize(name) {
+export function categorize(name) {
   const doc = nlp(name);
   
   // Try to find the "head" of the product phrase. 

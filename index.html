@@ -4,9 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="JustShoppingList — a private, no-login shopping list app. All data stays on your device." />
-  <meta name="theme-color" content="#2D5016" />
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F5F0E8" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121212" />
   <title>JustShoppingList</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>" />
   <script type="importmap">
     {
@@ -19,5 +21,10 @@
 <body>
   <div id="root"></div>
   <script type="module" src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+  </script>
 </body>
 </html>
