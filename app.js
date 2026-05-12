@@ -693,7 +693,7 @@ function ListView({ listId, listName: initialName, onBack }) {
         <div class="progress-bar-fill" style="width:${pct}%"></div>
       </div>
 
-      <div class="screen list-scroll-area notebook-paper">
+      <div class="screen list-scroll-area">
         <ul class="items-list">
           ${unchecked.map((item, idx) => {
             const showHeader = sort === 'category' && (idx === 0 || item.category !== unchecked[idx-1].category);
@@ -827,7 +827,7 @@ function ListsScreen({ onOpen }) {
         </div>
       </header>
 
-      <div class="screen notebook-paper">
+      <div class="screen">
         ${lists.length === 0 && html`
           <div class="empty-state">
             <svg class="empty-cart" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
