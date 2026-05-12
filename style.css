@@ -349,12 +349,12 @@ body {
 .swipe-check {
   background: #27ae60;
   flex: 1;
-  justify-content: flex-start;
+  justify-content: flex-end;
 }
 .swipe-delete {
   background: #c0392b;
   flex: 1;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 /* Custom checkbox */
@@ -696,8 +696,28 @@ body {
   font-size: 0.85rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   animation: slideUp 0.2s ease forwards;
-  max-width: 300px;
+  max-width: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
+.toast-msg { flex: 1; }
+.toast-action {
+  background: none;
+  border: none;
+  color: #81C784;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: background var(--transition);
+}
+.toast-action:hover { background: rgba(129, 199, 132, 0.15); }
+
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

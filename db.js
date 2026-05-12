@@ -87,17 +87,17 @@ export async function deleteList(id) {
   await db.lists.delete(id);
 }
 
-export async function addItem(listId, { name, qty = 1, category = 'other', addedFrom = 'manual' }) {
+export async function addItem(listId, { name, qty = 1, category = 'other', addedFrom = 'manual', checked = false }) {
   initDB();
   const now = new Date().toISOString();
   if (usingLocalStorage) {
     const items = lsItems();
-    const newItem = { id: lsNextId(items), listId, name, qty, category, checked: false, addedFrom };
+    const newItem = { id: lsNextId(items), listId, name, qty, category, checked, addedFrom };
     lsSaveItems([...items, newItem]);
     lsSaveLists(lsLists().map(l => l.id === listId ? { ...l, updatedAt: now } : l));
     return newItem.id;
   }
-  const id = await db.items.add({ listId, name, qty, category, checked: false, addedFrom });
+  const id = await db.items.add({ listId, name, qty, category, checked, addedFrom });
   await db.lists.update(listId, { updatedAt: now });
   return id;
 }
