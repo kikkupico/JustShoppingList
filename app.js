@@ -29,6 +29,20 @@ function todayName() {
   return `Shopping ${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`;
 }
 
+function timeAgo(date) {
+  if (!date) return '';
+  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  return new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+}
+
 const CAT_CLASSES = {
   produce: 'cat-produce', dairy: 'cat-dairy', meat: 'cat-meat',
   frozen: 'cat-frozen', bakery: 'cat-bakery', drinks: 'cat-drinks',
@@ -83,6 +97,9 @@ const IconCopy = () => html`<svg width="15" height="15" viewBox="0 0 24 24" fill
 const IconSearch = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
 const IconSort = () => html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="9" y2="18"/></svg>`;
 
+const IconEye = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+const IconEyeOff = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
 // ─── Toast ─────────────────────────────────────────────────────────────────────
 
 function ToastContainer() {
@@ -91,18 +108,41 @@ function ToastContainer() {
   useEffect(() => {
     const handler = (e) => {
       const id = Date.now();
-      setToasts(t => [...t, { id, msg: e.detail.msg }]);
-      setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
+      const { msg, action } = e.detail;
+      setToasts(t => [...t, { id, msg, action }]);
+      setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 5000);
     };
     window.addEventListener('jsl-toast', handler);
     return () => window.removeEventListener('jsl-toast', handler);
   }, []);
 
-  return html`<div class="toast-container">${toasts.map(t => html`<div key=${t.id} class="toast">${t.msg}</div>`)}</div>`;
+  const handleAction = (t) => {
+    if (t.action && t.action.fn) t.action.fn();
+    setToasts(curr => curr.filter(x => x.id !== t.id));
+  };
+
+  return html`
+    <div class="toast-container">
+      ${toasts.map(t => html`
+        <div key=${t.id} class="toast">
+          <span class="toast-msg">${t.msg}</span>
+          ${t.action && html`
+            <button class="toast-action" onClick=${() => handleAction(t)}>${t.action.label || 'Undo'}</button>
+          `}
+        </div>
+      `)}
+    </div>
+  `;
 }
 
-function toast(msg) {
-  window.dispatchEvent(new CustomEvent('jsl-toast', { detail: { msg } }));
+function toast(msg, action = null) {
+  window.dispatchEvent(new CustomEvent('jsl-toast', { detail: { msg, action } }));
+}
+
+function vibrate(ms = 10) {
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    navigator.vibrate(ms);
+  }
 }
 
 // ─── Confirm Dialog ────────────────────────────────────────────────────────────
@@ -294,6 +334,19 @@ function ReceiptModal({ listId, onClose, onAdded }) {
   `;
 }
 
+// ─── SwipeHint ─────────────────────────────────────────────────────────────────
+
+function SwipeHint({ onHide }) {
+  return html`
+    <div class="swipe-hint" onClick=${onHide}>
+      <div class="swipe-hint-content">
+        <span class="swipe-hint-action delete">← Swipe to delete</span>
+        <span class="swipe-hint-action check">Swipe to check →</span>
+      </div>
+    </div>
+  `;
+}
+
 // ─── EditableItem ──────────────────────────────────────────────────────────────
 
 function EditableItem({ item, onSave, onCancel }) {
@@ -348,7 +401,8 @@ function EditableItem({ item, onSave, onCancel }) {
 
 // ─── ItemRow ──────────────────────────────────────────────────────────────────
 
-function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onIncrease, onDecrease, onSaveEdit, onCancelEdit }) {
+function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onRecategorize, onIncrease, onDecrease, onSaveEdit, onCancelEdit,
+  isDraggable, isDragging, onDragStart, onDragOver, onDragEnd }) {
   const [startX, setStartX] = useState(0);
   const [currentX, setCurrentX] = useState(0);
   const [swiping, setSwiping] = useState(false);
@@ -381,10 +435,14 @@ function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onIncrease, onDe
   const showDelete = currentX < -10;
 
   return html`
-    <li class="item-row ${item.checked ? 'checked' : ''} ${swiping ? 'swiping' : ''} ${editingId === item.id ? 'editing' : ''}"
+    <li class="item-row ${item.checked ? 'checked' : ''} ${swiping ? 'swiping' : ''} ${editingId === item.id ? 'editing' : ''} ${isDragging ? 'dragging' : ''}"
         onTouchStart=${handleTouchStart}
         onTouchMove=${handleTouchMove}
-        onTouchEnd=${handleTouchEnd}>
+        onTouchEnd=${handleTouchEnd}
+        draggable=${isDraggable}
+        onDragStart=${onDragStart}
+        onDragOver=${onDragOver}
+        onDragEnd=${onDragEnd}>
       <div class="swipe-bg">
         <div class="swipe-action swipe-check" style="opacity: ${showCheck ? 1 : 0}">
           <${IconPlus}/>
@@ -412,7 +470,9 @@ function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onIncrease, onDe
             `}
           `
         }
-        <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
+        <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"
+          onClick=${(e) => { e.stopPropagation(); onRecategorize(item.id); }}
+          title="Change category"></span>
         <button class="delete-btn" onClick=${() => onDelete(item.id)}>
           <${IconX}/>
         </button>
@@ -431,7 +491,12 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [showReceipt, setShowReceipt] = useState(false);
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
+  const [showChecked, setShowChecked] = useState(true);
+  const [showHint, setShowHint] = useState(!localStorage.getItem('jsl_swipe_hint_shown'));
+  const [catOrder, setCatOrder] = useState(JSON.parse(localStorage.getItem('jsl_cat_order') || 'null') || Object.keys(CAT_CLASSES));
   const [sort, setSort] = useState('manual'); // 'manual' | 'alpha' | 'recent' | 'category'
+  const [draggedCat, setDraggedCat] = useState(null);
+  const [draggedItemId, setDraggedItemId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const menuRef = useRef(null);
   const addInputRef = useRef(null);
@@ -493,12 +558,71 @@ function ListView({ listId, listName: initialName, onBack }) {
   }
 
   async function handleToggle(id) {
+    vibrate(10);
     await toggleItem(id);
     loadItems();
   }
 
   async function handleDelete(id) {
+    vibrate(10);
+    const item = items.find(i => i.id === id);
+    if (!item) return;
     await deleteItem(id);
+    loadItems();
+    toast(`Deleted "${item.name}"`, {
+      fn: async () => {
+        await addItem(listId, { ...item });
+        loadItems();
+      }
+    });
+  }
+
+  async function handleRecategorize(id) {
+    const categories = Object.keys(CAT_CLASSES);
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    const currentIdx = categories.indexOf(item.category || 'other');
+    const nextCat = categories[(currentIdx + 1) % categories.length];
+    await updateItem(id, { category: nextCat });
+    loadItems();
+  }
+
+  function handleCatDragStart(cat) {
+    setDraggedCat(cat);
+  }
+
+  function handleCatDragOver(e, overCat) {
+    e.preventDefault();
+    if (!draggedCat || draggedCat === overCat) return;
+    const fromIdx = catOrder.indexOf(draggedCat);
+    const toIdx = catOrder.indexOf(overCat);
+    const newOrder = [...catOrder];
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, draggedCat);
+    setCatOrder(newOrder);
+    localStorage.setItem('jsl_cat_order', JSON.stringify(newOrder));
+  }
+
+  function handleItemDragStart(id) {
+    if (sort !== 'manual') return;
+    setDraggedItemId(id);
+  }
+
+  function handleItemDragOver(e, overId) {
+    e.preventDefault();
+    if (sort !== 'manual' || !draggedItemId || draggedItemId === overId) return;
+    
+    const manualOrder = JSON.parse(localStorage.getItem(`jsl_manual_order_${listId}`) || 'null') || sorted.map(i => i.id);
+    const fromIdx = manualOrder.indexOf(draggedItemId);
+    const toIdx = manualOrder.indexOf(overId);
+    
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const newOrder = [...manualOrder];
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, draggedItemId);
+    
+    localStorage.setItem(`jsl_manual_order_${listId}`, JSON.stringify(newOrder));
     loadItems();
   }
 
@@ -558,8 +682,19 @@ function ListView({ listId, listName: initialName, onBack }) {
 
   async function handleClearChecked() {
     setShowMenu(false);
+    const toClear = items.filter(i => i.checked);
+    if (!toClear.length) return;
+    vibrate(10);
     await clearChecked(listId);
     loadItems();
+    toast(`Cleared ${toClear.length} items`, {
+      fn: async () => {
+        for (const item of toClear) {
+          await addItem(listId, { ...item });
+        }
+        loadItems();
+      }
+    });
   }
 
   async function handleUncheckAll() {
@@ -610,14 +745,20 @@ function ListView({ listId, listName: initialName, onBack }) {
     if (sort === 'category') {
       const catA = a.category || 'other';
       const catB = b.category || 'other';
-      if (catA !== catB) return catA.localeCompare(catB);
+      if (catA !== catB) return catOrder.indexOf(catA) - catOrder.indexOf(catB);
       return a.name.localeCompare(b.name);
+    }
+    const manualOrder = JSON.parse(localStorage.getItem(`jsl_manual_order_${listId}`) || 'null');
+    if (manualOrder) {
+      const idxA = manualOrder.indexOf(a.id);
+      const idxB = manualOrder.indexOf(b.id);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return 1; // A is in order, B is new -> B first
+      if (idxB !== -1) return -1; // B is in order, A is new -> A first
     }
     return b.id - a.id; // manual: newest first
   });
-  const unchecked = sorted.filter(i => !i.checked);
-  const checked = sorted.filter(i => i.checked);
-  const visible = sorted;
+  const visible = showChecked ? sorted : sorted.filter(i => !i.checked);
   const total = items.length;
   const checkedCount = items.filter(i => i.checked).length;
   const pct = total ? Math.round((checkedCount / total) * 100) : 0;
@@ -639,6 +780,11 @@ function ListView({ listId, listName: initialName, onBack }) {
           title=${sortTitle}>
           <${IconSort}/>
           <span class="sort-label">${sortLabel}</span>
+        </button>
+        <button class="icon-btn ${!showChecked ? 'active' : ''}"
+          onClick=${() => setShowChecked(v => !v)}
+          title=${showChecked ? 'Hide checked items' : 'Show checked items'}>
+          <${showChecked ? IconEye : IconEyeOff}/>
         </button>
         <button class="add-header-btn ${showAdd ? 'active' : ''}" onClick=${toggleAdd} title="Add item">
           <${IconPlus}/> Add
@@ -694,11 +840,26 @@ function ListView({ listId, listName: initialName, onBack }) {
       </div>
 
       <div class="screen list-scroll-area">
+        ${showHint && visible.length > 0 && html`
+          <${SwipeHint} onHide=${() => {
+            localStorage.setItem('jsl_swipe_hint_shown', 'true');
+            setShowHint(false);
+          }}/>
+        `}
         <ul class="items-list">
-          ${unchecked.map((item, idx) => {
-            const showHeader = sort === 'category' && (idx === 0 || item.category !== unchecked[idx-1].category);
+          ${visible.map((item, idx) => {
+            const cat = item.category || 'other';
+            const showHeader = sort === 'category' && (idx === 0 || cat !== (visible[idx-1].category || 'other'));
             return html`
-              ${showHeader && html`<li class="category-header">${item.category || 'other'}</li>`}
+              ${showHeader && html`
+                <li class="category-header ${draggedCat === cat ? 'dragging' : ''}"
+                    draggable="true"
+                    onDragStart=${() => handleCatDragStart(cat)}
+                    onDragOver=${(e) => handleCatDragOver(e, cat)}
+                    onDragEnd=${() => setDraggedCat(null)}>
+                  ${cat}
+                </li>
+              `}
               <${ItemRow}
                 key=${item.id}
                 item=${item}
@@ -706,38 +867,20 @@ function ListView({ listId, listName: initialName, onBack }) {
                 onToggle=${handleToggle}
                 onEdit=${setEditingId}
                 onDelete=${handleDelete}
+                onRecategorize=${handleRecategorize}
                 onIncrease=${handleIncreaseQty}
                 onDecrease=${handleDecreaseQty}
                 onSaveEdit=${handleSaveEdit}
                 onCancelEdit=${() => setEditingId(null)}
+                isDraggable=${sort === 'manual'}
+                isDragging=${draggedItemId === item.id}
+                onDragStart=${() => handleItemDragStart(item.id)}
+                onDragOver=${(e) => handleItemDragOver(e, item.id)}
+                onDragEnd=${() => setDraggedItemId(null)}
               />
             `;
           })}
         </ul>
-
-        ${checked.length > 0 && html`
-          <p class="section-label">Checked (${checkedCount})</p>
-          <ul class="items-list">
-            ${checked.map((item, idx) => {
-              const showHeader = sort === 'category' && (idx === 0 || item.category !== checked[idx-1].category);
-              return html`
-                ${showHeader && html`<li class="category-header">${item.category || 'other'}</li>`}
-                <${ItemRow}
-                  key=${item.id}
-                  item=${item}
-                  editingId=${editingId}
-                  onToggle=${handleToggle}
-                  onEdit=${setEditingId}
-                  onDelete=${handleDelete}
-                  onIncrease=${handleIncreaseQty}
-                  onDecrease=${handleDecreaseQty}
-                  onSaveEdit=${handleSaveEdit}
-                  onCancelEdit=${() => setEditingId(null)}
-                />
-              `;
-            })}
-          </ul>
-        `}
 
         ${items.length === 0 && html`
           <div class="empty-state" style="padding:2rem 0">
@@ -770,12 +913,21 @@ function ListView({ listId, listName: initialName, onBack }) {
 
 function ListsScreen({ onOpen }) {
   const [lists, setLists] = useState([]);
-  const [confirm, setConfirm] = useState(null); // { id, name }
   const longPressRef = useRef(null);
 
   const loadLists = useCallback(async () => {
     const data = await getLists();
-    setLists(data);
+    const listsWithStats = await Promise.all(data.map(async (l) => {
+      const items = await getItems(l.id);
+      const total = items.length;
+      const checked = items.filter(i => i.checked).length;
+      const lastShopped = items.reduce((max, i) => {
+        if (!i.lastCheckedAt) return max;
+        return !max || i.lastCheckedAt > max ? i.lastCheckedAt : max;
+      }, null);
+      return { ...l, total, checked, lastShopped };
+    }));
+    setLists(listsWithStats);
   }, []);
 
   useEffect(() => { loadLists(); }, [loadLists]);
@@ -789,23 +941,6 @@ function ListsScreen({ onOpen }) {
     if (created) onOpen(created);
   }
 
-  function startLongPress(list) {
-    longPressRef.current = setTimeout(() => {
-      setConfirm(list);
-    }, 600);
-  }
-
-  function cancelLongPress() {
-    clearTimeout(longPressRef.current);
-  }
-
-  async function handleDelete() {
-    if (!confirm) return;
-    await deleteList(confirm.id);
-    setConfirm(null);
-    loadLists();
-  }
-
   async function handleDuplicate(e, list) {
     e.stopPropagation();
     const newId = await duplicateList(list.id, list.name);
@@ -813,6 +948,28 @@ function ListsScreen({ onOpen }) {
     const fresh = await getLists();
     const created = fresh.find(l => l.id === newId);
     if (created) onOpen(created);
+  }
+
+  function startLongPress(list) {
+    longPressRef.current = setTimeout(async () => {
+      vibrate(20);
+      const itemsToDelete = await getItems(list.id);
+      await deleteList(list.id);
+      loadLists();
+      toast(`Deleted list "${list.name}"`, {
+        fn: async () => {
+          const newId = await createList(list.name);
+          for (const item of itemsToDelete) {
+            await addItem(newId, { ...item });
+          }
+          loadLists();
+        }
+      });
+    }, 800);
+  }
+
+  function cancelLongPress() {
+    clearTimeout(longPressRef.current);
   }
 
   return html`
@@ -854,6 +1011,16 @@ function ListsScreen({ onOpen }) {
               onTouchStart=${() => startLongPress(list)}
               onTouchEnd=${cancelLongPress}>
               <div class="list-card-name">${list.name}</div>
+              <div class="list-card-meta">
+                ${list.total > 0 ? html`
+                  <span>${list.checked} / ${list.total} items ${list.lastShopped ? html`· ${timeAgo(list.lastShopped)}` : ''}</span>
+                ` : html`<span>No items</span>`}
+              </div>
+              ${list.total > 0 && html`
+                <div class="list-card-progress">
+                  <div class="list-card-progress-fill" style="width: ${(list.checked / list.total) * 100}%"></div>
+                </div>
+              `}
               <button class="list-card-dup" title="Duplicate list" onClick=${e => handleDuplicate(e, list)}>
                 <${IconCopy}/>
               </button>
@@ -865,14 +1032,6 @@ function ListsScreen({ onOpen }) {
       <button class="fab" onClick=${handleCreate} title="New list">
         <${IconPlus}/>
       </button>
-
-      ${confirm && html`
-        <${ConfirmDialog}
-          message=${'Delete "' + confirm.name + '"? This cannot be undone.'}
-          onConfirm=${handleDelete}
-          onCancel=${() => setConfirm(null)}
-        />
-      `}
     </div>
   `;
 }
@@ -923,6 +1082,13 @@ function App() {
         .catch(() => {});
       // clean URL
       history.replaceState({}, '', location.pathname);
+    } else {
+      // Resume last list if no import
+      const lastList = JSON.parse(localStorage.getItem('jsl_last_list') || 'null');
+      if (lastList) {
+        setActiveList(lastList);
+        setView('list');
+      }
     }
   }, []);
 
@@ -937,8 +1103,14 @@ function App() {
   }
 
   function openList(list) {
+    localStorage.setItem('jsl_last_list', JSON.stringify(list));
     setActiveList(list);
     setView('list');
+  }
+
+  function handleBack() {
+    localStorage.removeItem('jsl_last_list');
+    setView('lists');
   }
 
   return html`
@@ -948,7 +1120,7 @@ function App() {
         <${ListView}
           listId=${activeList.id}
           listName=${activeList.name}
-          onBack=${() => setView('lists')}
+          onBack=${handleBack}
         />
       `}
       <${Footer}/>
