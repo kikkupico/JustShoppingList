@@ -91,32 +91,18 @@ function ToastContainer() {
   useEffect(() => {
     const handler = (e) => {
       const id = Date.now();
-      const { msg, action } = e.detail;
-      setToasts(t => [...t, { id, msg, action }]);
-      setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 5000);
+      setToasts(t => [...t, { id, msg: e.detail.msg }]);
+      setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
     };
     window.addEventListener('jsl-toast', handler);
     return () => window.removeEventListener('jsl-toast', handler);
   }, []);
 
-  return html`
-    <div class="toast-container">
-      ${toasts.map(t => html`
-        <div key=${t.id} class="toast">
-          <span class="toast-msg">${t.msg}</span>
-          ${t.action && html`
-            <button class="toast-action" onClick=${() => { t.action.onClick(); setToasts(ts => ts.filter(x => x.id !== t.id)); }}>
-              ${t.action.label}
-            </button>
-          `}
-        </div>
-      `)}
-    </div>
-  `;
+  return html`<div class="toast-container">${toasts.map(t => html`<div key=${t.id} class="toast">${t.msg}</div>`)}</div>`;
 }
 
-function toast(msg, action) {
-  window.dispatchEvent(new CustomEvent('jsl-toast', { detail: { msg, action } }));
+function toast(msg) {
+  window.dispatchEvent(new CustomEvent('jsl-toast', { detail: { msg } }));
 }
 
 // ─── Confirm Dialog ────────────────────────────────────────────────────────────
@@ -383,16 +369,16 @@ function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onIncrease, onDe
     if (!swiping) return;
     setSwiping(false);
     if (currentX > 70) {
-      onDelete(item.id);
-    } else if (currentX < -70) {
       onToggle(item.id);
+    } else if (currentX < -70) {
+      onDelete(item.id);
     }
     setCurrentX(0);
   }
 
   const offset = swiping ? Math.max(-100, Math.min(100, currentX)) : 0;
-  const showDelete = currentX > 10;
-  const showCheck = currentX < -10;
+  const showCheck = currentX > 10;
+  const showDelete = currentX < -10;
 
   return html`
     <li class="item-row ${item.checked ? 'checked' : ''} ${swiping ? 'swiping' : ''} ${editingId === item.id ? 'editing' : ''}"
@@ -400,17 +386,15 @@ function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onIncrease, onDe
         onTouchMove=${handleTouchMove}
         onTouchEnd=${handleTouchEnd}>
       <div class="swipe-bg">
-        <div class="swipe-action swipe-delete" style="opacity: ${showDelete ? 1 : 0}">
-          <${IconX}/>
-        </div>
         <div class="swipe-action swipe-check" style="opacity: ${showCheck ? 1 : 0}">
           <${IconPlus}/>
         </div>
+        <div class="swipe-action swipe-delete" style="opacity: ${showDelete ? 1 : 0}">
+          <${IconX}/>
+        </div>
       </div>
       <div class="item-row-content" style="transform: translateX(${offset}px)">
-        <button class="delete-btn" onClick=${() => onDelete(item.id)}>
-          <${IconX}/>
-        </button>
+        <${Checkbox} checked=${item.checked} onChange=${() => onToggle(item.id)}/>
         ${editingId === item.id
           ? html`<${EditableItem} item=${item} onSave=${(changes) => onSaveEdit(item.id, changes)} onCancel=${onCancelEdit}/>`
           : html`
@@ -429,7 +413,9 @@ function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onIncrease, onDe
           `
         }
         <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"></span>
-        <${Checkbox} checked=${item.checked} onChange=${() => onToggle(item.id)}/>
+        <button class="delete-btn" onClick=${() => onDelete(item.id)}>
+          <${IconX}/>
+        </button>
       </div>
     </li>
   `;
@@ -512,27 +498,8 @@ function ListView({ listId, listName: initialName, onBack }) {
   }
 
   async function handleDelete(id) {
-    const item = items.find(i => i.id === id);
-    if (!item) return;
-
-    // Optimistic UI update
-    setItems(prev => prev.filter(i => i.id !== id));
-
     await deleteItem(id);
-
-    toast(`Deleted "${item.name}"`, {
-      label: 'Undo',
-      onClick: async () => {
-        await addItem(listId, {
-          name: item.name,
-          qty: item.qty,
-          category: item.category,
-          addedFrom: item.addedFrom,
-          checked: item.checked
-        });
-        loadItems();
-      }
-    });
+    loadItems();
   }
 
   async function handleIncreaseQty(id) {
