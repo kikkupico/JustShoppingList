@@ -96,6 +96,8 @@ const IconUpload = () => html`<svg width="28" height="28" viewBox="0 0 24 24" fi
 const IconCopy = () => html`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 const IconSearch = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
 const IconSort = () => html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="9" y2="18"/></svg>`;
+const IconChevronRight = () => html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
+const IconChevronDown = () => html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
 
 const IconEye = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const IconEyeOff = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
@@ -352,6 +354,7 @@ function SwipeHint({ onHide }) {
 function EditableItem({ item, onSave, onCancel }) {
   const [name, setName] = useState(item.name);
   const [qty, setQty] = useState(item.qty || 1);
+  const containerRef = useRef(null);
   const nameRef = useRef(null);
   const qtyRef = useRef(null);
 
@@ -374,15 +377,23 @@ function EditableItem({ item, onSave, onCancel }) {
     else if (e.key === 'Escape') onCancel();
   }
 
+  function handleBlur(e) {
+    // If the new focus is still inside our container, don't save yet
+    if (containerRef.current && containerRef.current.contains(e.relatedTarget)) {
+      return;
+    }
+    handleSave();
+  }
+
   return html`
-    <div class="edit-item-inputs">
+    <div class="edit-item-inputs" ref=${containerRef}>
       <input
         ref=${nameRef}
         class="item-name-edit"
         type="text"
         value=${name}
         onInput=${e => setName(e.target.value)}
-        onBlur=${handleSave}
+        onBlur=${handleBlur}
         onKeyDown=${handleKeyDown}
       />
       <input
@@ -392,9 +403,38 @@ function EditableItem({ item, onSave, onCancel }) {
         min="1"
         value=${qty}
         onInput=${e => setQty(e.target.value)}
-        onBlur=${handleSave}
+        onBlur=${handleBlur}
         onKeyDown=${handleKeyDown}
       />
+    </div>
+  `;
+}
+
+// ─── CategoryDropdown ──────────────────────────────────────────────────────────
+
+function CategoryDropdown({ current, onSelect, onClose }) {
+  const categories = Object.keys(CAT_CLASSES);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        onClose();
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [onClose]);
+
+  return html`
+    <div class="cat-dropdown" ref=${dropdownRef}>
+      ${categories.map(cat => html`
+        <button class="cat-dropdown-item ${cat === current ? 'active' : ''}" 
+          onClick=${(e) => { e.stopPropagation(); onSelect(cat); onClose(); }}>
+          <span class="cat-dot ${CAT_CLASSES[cat]}"></span>
+          <span class="cat-name">${cat}</span>
+        </button>
+      `)}
     </div>
   `;
 }
@@ -406,6 +446,7 @@ function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onRecategorize, 
   const [startX, setStartX] = useState(0);
   const [currentX, setCurrentX] = useState(0);
   const [swiping, setSwiping] = useState(false);
+  const [showCatMenu, setShowCatMenu] = useState(false);
 
   function handleTouchStart(e) {
     if (editingId === item.id) return;
@@ -470,9 +511,17 @@ function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onRecategorize, 
             `}
           `
         }
-        <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"
-          onClick=${(e) => { e.stopPropagation(); onRecategorize(item.id); }}
-          title="Change category"></span>
+        <div class="cat-dot-wrapper">
+          <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"
+            onClick=${(e) => { e.stopPropagation(); setShowCatMenu(v => !v); }}
+            title="Change category"></span>
+          ${showCatMenu && html`
+            <${CategoryDropdown} 
+              current=${item.category || 'other'} 
+              onSelect=${(cat) => onRecategorize(item.id, cat)} 
+              onClose=${() => setShowCatMenu(false)} />
+          `}
+        </div>
         <button class="delete-btn" onClick=${() => onDelete(item.id)}>
           <${IconX}/>
         </button>
@@ -498,6 +547,7 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [draggedCat, setDraggedCat] = useState(null);
   const [draggedItemId, setDraggedItemId] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [collapsedCats, setCollapsedCats] = useState(new Set());
   const menuRef = useRef(null);
   const addInputRef = useRef(null);
 
@@ -516,6 +566,15 @@ function ListView({ listId, listName: initialName, onBack }) {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  function toggleCatCollapse(cat) {
+    setCollapsedCats(curr => {
+      const next = new Set(curr);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  }
 
   function parseItemLine(line) {
     let name = line;
@@ -577,12 +636,17 @@ function ListView({ listId, listName: initialName, onBack }) {
     });
   }
 
-  async function handleRecategorize(id) {
+  async function handleRecategorize(id, cat = null) {
     const categories = Object.keys(CAT_CLASSES);
     const item = items.find(i => i.id === id);
     if (!item) return;
-    const currentIdx = categories.indexOf(item.category || 'other');
-    const nextCat = categories[(currentIdx + 1) % categories.length];
+    
+    let nextCat = cat;
+    if (!nextCat) {
+      const currentIdx = categories.indexOf(item.category || 'other');
+      nextCat = categories[(currentIdx + 1) % categories.length];
+    }
+    
     await updateItem(id, { category: nextCat });
     loadItems();
   }
@@ -850,34 +914,42 @@ function ListView({ listId, listName: initialName, onBack }) {
           ${visible.map((item, idx) => {
             const cat = item.category || 'other';
             const showHeader = sort === 'category' && (idx === 0 || cat !== (visible[idx-1].category || 'other'));
+            const isCollapsed = collapsedCats.has(cat);
+
             return html`
               ${showHeader && html`
                 <li class="category-header ${draggedCat === cat ? 'dragging' : ''}"
+                    onClick=${() => toggleCatCollapse(cat)}
                     draggable="true"
                     onDragStart=${() => handleCatDragStart(cat)}
                     onDragOver=${(e) => handleCatDragOver(e, cat)}
                     onDragEnd=${() => setDraggedCat(null)}>
+                  <span class="cat-collapse-icon">
+                    ${isCollapsed ? html`<${IconChevronRight}/>` : html`<${IconChevronDown}/>`}
+                  </span>
                   ${cat}
                 </li>
               `}
-              <${ItemRow}
-                key=${item.id}
-                item=${item}
-                editingId=${editingId}
-                onToggle=${handleToggle}
-                onEdit=${setEditingId}
-                onDelete=${handleDelete}
-                onRecategorize=${handleRecategorize}
-                onIncrease=${handleIncreaseQty}
-                onDecrease=${handleDecreaseQty}
-                onSaveEdit=${handleSaveEdit}
-                onCancelEdit=${() => setEditingId(null)}
-                isDraggable=${sort === 'manual'}
-                isDragging=${draggedItemId === item.id}
-                onDragStart=${() => handleItemDragStart(item.id)}
-                onDragOver=${(e) => handleItemDragOver(e, item.id)}
-                onDragEnd=${() => setDraggedItemId(null)}
-              />
+              ${!isCollapsed && html`
+                <${ItemRow}
+                  key=${item.id}
+                  item=${item}
+                  editingId=${editingId}
+                  onToggle=${handleToggle}
+                  onEdit=${setEditingId}
+                  onDelete=${handleDelete}
+                  onRecategorize=${handleRecategorize}
+                  onIncrease=${handleIncreaseQty}
+                  onDecrease=${handleDecreaseQty}
+                  onSaveEdit=${handleSaveEdit}
+                  onCancelEdit=${() => setEditingId(null)}
+                  isDraggable=${sort === 'manual'}
+                  isDragging=${draggedItemId === item.id}
+                  onDragStart=${() => handleItemDragStart(item.id)}
+                  onDragOver=${(e) => handleItemDragOver(e, item.id)}
+                  onDragEnd=${() => setDraggedItemId(null)}
+                />
+              `}
             `;
           })}
         </ul>

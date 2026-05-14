@@ -492,6 +492,47 @@ body {
 }
 .cat-dot:active { transform: scale(1.5); }
 
+.cat-dot-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.cat-dropdown {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 200;
+  min-width: 130px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cat-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8rem;
+  color: var(--text);
+  transition: background var(--transition);
+  text-transform: capitalize;
+}
+.cat-dropdown-item:hover { background: var(--bg); }
+.cat-dropdown-item.active { font-weight: 600; color: var(--primary); }
+.cat-dropdown-item .cat-dot { width: 10px; height: 10px; }
+
 .list-card-progress {
   height: 3px;
   background: var(--border);
@@ -820,6 +861,16 @@ body {
   top: 0;
   z-index: 10;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.cat-collapse-icon {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
 }
 
 .item-row.dragging {
