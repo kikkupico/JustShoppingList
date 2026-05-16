@@ -317,6 +317,7 @@ body {
   user-select: none;
 }
 .item-row.checked { opacity: 0.6; }
+.item-row.cat-menu-open { overflow: visible; }
 
 .item-row-content {
   display: flex;
@@ -500,7 +501,7 @@ body {
   white-space: nowrap;
   flex-shrink: 0;
   line-height: 1.5;
-  background: transparent;
+  background: transparent !important;
   border: 1px solid currentColor;
   opacity: 0.75;
   transition: opacity var(--transition);

@@ -477,7 +477,7 @@ function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onRecategorize, 
   const showDelete = currentX < -10;
 
   return html`
-    <li class="item-row ${item.checked ? 'checked' : ''} ${swiping ? 'swiping' : ''} ${editingId === item.id ? 'editing' : ''} ${isDragging ? 'dragging' : ''}"
+    <li class="item-row ${item.checked ? 'checked' : ''} ${swiping ? 'swiping' : ''} ${editingId === item.id ? 'editing' : ''} ${isDragging ? 'dragging' : ''} ${showCatMenu ? 'cat-menu-open' : ''}"
         onTouchStart=${handleTouchStart}
         onTouchMove=${handleTouchMove}
         onTouchEnd=${handleTouchEnd}
