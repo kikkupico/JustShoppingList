@@ -186,3 +186,63 @@ export async function setAllChecked(listId, checked) {
   const ids = await db.items.where('listId').equals(listId).primaryKeys();
   await Promise.all(ids.map(id => db.items.update(id, { checked })));
 }
+
+export async function exportDB() {
+  initDB();
+  let lists, items;
+  if (usingLocalStorage) {
+    lists = lsLists();
+    items = lsItems();
+  } else {
+    lists = await db.lists.toArray();
+    items = await db.items.toArray();
+  }
+  return { version: 1, exportedAt: new Date().toISOString(), lists, items };
+}
+
+export async function importDB(data) {
+  initDB();
+  if (!data || !Array.isArray(data.lists) || !Array.isArray(data.items)) {
+    throw new Error('Invalid backup format');
+  }
+  const oldToNew = {};
+  if (usingLocalStorage) {
+    lsSaveLists([]);
+    lsSaveItems([]);
+    for (const list of data.lists) {
+      const newId = await createList(list.name);
+      oldToNew[list.id] = newId;
+    }
+    for (const item of data.items) {
+      const newListId = oldToNew[item.listId];
+      if (newListId !== undefined) {
+        await addItem(newListId, {
+          name: item.name, qty: item.qty || 1, category: item.category || 'other',
+          addedFrom: item.addedFrom || 'manual', checked: item.checked || false,
+          lastCheckedAt: item.lastCheckedAt || null,
+        });
+      }
+    }
+  } else {
+    await db.items.clear();
+    await db.lists.clear();
+    for (const list of data.lists) {
+      const newId = await db.lists.add({
+        name: list.name,
+        createdAt: list.createdAt || new Date().toISOString(),
+        updatedAt: list.updatedAt || new Date().toISOString(),
+      });
+      oldToNew[list.id] = newId;
+    }
+    for (const item of data.items) {
+      const newListId = oldToNew[item.listId];
+      if (newListId !== undefined) {
+        await db.items.add({
+          listId: newListId, name: item.name, qty: item.qty || 1,
+          category: item.category || 'other', checked: item.checked || false,
+          addedFrom: item.addedFrom || 'manual', lastCheckedAt: item.lastCheckedAt || null,
+        });
+      }
+    }
+  }
+}

@@ -135,7 +135,7 @@ body {
   user-select: none;
   position: relative;
 }
-.list-card-dup {
+.list-card-del {
   position: absolute;
   bottom: 0.5rem;
   right: 0.5rem;
@@ -149,9 +149,9 @@ body {
   opacity: 0;
   transition: opacity var(--transition), color var(--transition);
 }
-.list-card:hover .list-card-dup { opacity: 1; }
-.list-card-dup:hover { color: var(--primary); }
-@media (hover: none) { .list-card-dup { opacity: 1; } }
+.list-card:hover .list-card-del { opacity: 1; }
+.list-card-del:hover { color: #c0392b; }
+@media (hover: none) { .list-card-del { opacity: 1; } }
 .list-card:hover {
   box-shadow: 0 4px 12px rgba(0,0,0,0.12);
   transform: translateY(-1px);
@@ -487,10 +487,34 @@ body {
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-  cursor: pointer;
-  transition: transform 0.1s ease;
 }
-.cat-dot:active { transform: scale(1.5); }
+
+.cat-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.5;
+  background: transparent;
+  border: 1px solid currentColor;
+  opacity: 0.75;
+  transition: opacity var(--transition);
+}
+.cat-label:hover { opacity: 1; }
+.cat-label.cat-produce { color: var(--cat-produce); }
+.cat-label.cat-dairy { color: var(--cat-dairy); }
+.cat-label.cat-meat { color: var(--cat-meat); }
+.cat-label.cat-frozen { color: var(--cat-frozen); }
+.cat-label.cat-bakery { color: var(--cat-bakery); }
+.cat-label.cat-drinks { color: var(--cat-drinks); }
+.cat-label.cat-snacks { color: var(--cat-snacks); }
+.cat-label.cat-household { color: var(--cat-household); }
+.cat-label.cat-other { color: var(--cat-other); }
 
 .cat-dot-wrapper {
   position: relative;

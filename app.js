@@ -2,8 +2,9 @@ import { h, render } from 'https://esm.sh/preact@10.22.0';
 import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@10.22.0/hooks';
 import { html } from 'https://esm.sh/htm@3.1.1/preact';
 import {
-  createList, getLists, updateListName, deleteList, duplicateList,
-  addItem, getItems, toggleItem, deleteItem, clearChecked, setAllChecked, updateItem
+  createList, getLists, updateListName, deleteList,
+  addItem, getItems, toggleItem, deleteItem, clearChecked, setAllChecked, updateItem,
+  exportDB, importDB,
 } from './db.js';
 import { initOCR, recogniseReceipt, isOCRReady } from './ocr.js';
 import { extractItemsFromText, categorize } from './parser.js';
@@ -93,11 +94,11 @@ const IconMinus = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fil
 const IconShield = () => html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
 const IconX = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 const IconUpload = () => html`<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`;
-const IconCopy = () => html`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 const IconSearch = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
 const IconSort = () => html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="9" y2="18"/></svg>`;
 const IconChevronRight = () => html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
 const IconChevronDown = () => html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+const IconTrash = () => html`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
 
 const IconEye = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const IconEyeOff = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
@@ -149,14 +150,14 @@ function vibrate(ms = 10) {
 
 // ─── Confirm Dialog ────────────────────────────────────────────────────────────
 
-function ConfirmDialog({ message, onConfirm, onCancel }) {
+function ConfirmDialog({ message, onConfirm, onCancel, confirmLabel = 'Delete' }) {
   return html`
     <div class="confirm-overlay" onClick=${onCancel}>
       <div class="confirm-box" onClick=${e => e.stopPropagation()}>
         <p>${message}</p>
         <div class="confirm-actions">
           <button class="cancel-btn" onClick=${onCancel}>Cancel</button>
-          <button class="danger-btn" onClick=${onConfirm}>Delete</button>
+          <button class="danger-btn" onClick=${onConfirm}>${confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -412,25 +413,13 @@ function EditableItem({ item, onSave, onCancel }) {
 
 // ─── CategoryDropdown ──────────────────────────────────────────────────────────
 
-function CategoryDropdown({ current, onSelect, onClose }) {
+function CategoryDropdown({ current, onSelect }) {
   const categories = Object.keys(CAT_CLASSES);
-  const dropdownRef = useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        onClose();
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose]);
-
   return html`
-    <div class="cat-dropdown" ref=${dropdownRef}>
+    <div class="cat-dropdown">
       ${categories.map(cat => html`
-        <button class="cat-dropdown-item ${cat === current ? 'active' : ''}" 
-          onClick=${(e) => { e.stopPropagation(); onSelect(cat); onClose(); }}>
+        <button class="cat-dropdown-item ${cat === current ? 'active' : ''}"
+          onClick=${(e) => { e.stopPropagation(); onSelect(cat); }}>
           <span class="cat-dot ${CAT_CLASSES[cat]}"></span>
           <span class="cat-name">${cat}</span>
         </button>
@@ -442,11 +431,23 @@ function CategoryDropdown({ current, onSelect, onClose }) {
 // ─── ItemRow ──────────────────────────────────────────────────────────────────
 
 function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onRecategorize, onIncrease, onDecrease, onSaveEdit, onCancelEdit,
-  isDraggable, isDragging, onDragStart, onDragOver, onDragEnd }) {
+  isDraggable, isDragging, onDragStart, onDragOver, onDragEnd, hideCategory }) {
   const [startX, setStartX] = useState(0);
   const [currentX, setCurrentX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const [showCatMenu, setShowCatMenu] = useState(false);
+  const catWrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!showCatMenu) return;
+    function handleOutside(e) {
+      if (catWrapRef.current && !catWrapRef.current.contains(e.target)) {
+        setShowCatMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [showCatMenu]);
 
   function handleTouchStart(e) {
     if (editingId === item.id) return;
@@ -511,17 +512,18 @@ function ItemRow({ item, editingId, onToggle, onEdit, onDelete, onRecategorize, 
             `}
           `
         }
-        <div class="cat-dot-wrapper">
-          <span class="cat-dot ${CAT_CLASSES[item.category] || 'cat-other'}"
-            onClick=${(e) => { e.stopPropagation(); setShowCatMenu(v => !v); }}
-            title="Change category"></span>
-          ${showCatMenu && html`
-            <${CategoryDropdown} 
-              current=${item.category || 'other'} 
-              onSelect=${(cat) => onRecategorize(item.id, cat)} 
-              onClose=${() => setShowCatMenu(false)} />
-          `}
-        </div>
+        ${!hideCategory && html`
+          <div class="cat-dot-wrapper" ref=${catWrapRef}>
+            <span class="cat-label ${CAT_CLASSES[item.category] || 'cat-other'}"
+              onClick=${(e) => { e.stopPropagation(); setShowCatMenu(v => !v); }}
+              title="Change category">${item.category || 'other'}</span>
+            ${showCatMenu && html`
+              <${CategoryDropdown}
+                current=${item.category || 'other'}
+                onSelect=${(cat) => { onRecategorize(item.id, cat); setShowCatMenu(false); }} />
+            `}
+          </div>
+        `}
         <button class="delete-btn" onClick=${() => onDelete(item.id)}>
           <${IconX}/>
         </button>
@@ -948,6 +950,7 @@ function ListView({ listId, listName: initialName, onBack }) {
                   onDragStart=${() => handleItemDragStart(item.id)}
                   onDragOver=${(e) => handleItemDragOver(e, item.id)}
                   onDragEnd=${() => setDraggedItemId(null)}
+                  hideCategory=${sort === 'category'}
                 />
               `}
             `;
@@ -985,7 +988,11 @@ function ListView({ listId, listName: initialName, onBack }) {
 
 function ListsScreen({ onOpen }) {
   const [lists, setLists] = useState([]);
+  const [showDbMenu, setShowDbMenu] = useState(false);
+  const [importPending, setImportPending] = useState(null);
   const longPressRef = useRef(null);
+  const dbMenuRef = useRef(null);
+  const importFileRef = useRef(null);
 
   const loadLists = useCallback(async () => {
     const data = await getLists();
@@ -1004,6 +1011,14 @@ function ListsScreen({ onOpen }) {
 
   useEffect(() => { loadLists(); }, [loadLists]);
 
+  useEffect(() => {
+    function handleClick(e) {
+      if (dbMenuRef.current && !dbMenuRef.current.contains(e.target)) setShowDbMenu(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
   async function handleCreate() {
     const id = await createList(todayName());
     await loadLists();
@@ -1013,31 +1028,72 @@ function ListsScreen({ onOpen }) {
     if (created) onOpen(created);
   }
 
-  async function handleDuplicate(e, list) {
+  async function handleDeleteList(list) {
+    const itemsToDelete = await getItems(list.id);
+    await deleteList(list.id);
+    loadLists();
+    toast(`Deleted "${list.name}"`, {
+      fn: async () => {
+        const newId = await createList(list.name);
+        for (const item of itemsToDelete) {
+          await addItem(newId, { ...item });
+        }
+        loadLists();
+      }
+    });
+  }
+
+  async function handleDeleteCard(e, list) {
     e.stopPropagation();
-    const newId = await duplicateList(list.id, list.name);
-    await loadLists();
-    const fresh = await getLists();
-    const created = fresh.find(l => l.id === newId);
-    if (created) onOpen(created);
+    vibrate(10);
+    await handleDeleteList(list);
   }
 
   function startLongPress(list) {
     longPressRef.current = setTimeout(async () => {
       vibrate(20);
-      const itemsToDelete = await getItems(list.id);
-      await deleteList(list.id);
-      loadLists();
-      toast(`Deleted list "${list.name}"`, {
-        fn: async () => {
-          const newId = await createList(list.name);
-          for (const item of itemsToDelete) {
-            await addItem(newId, { ...item });
-          }
-          loadLists();
-        }
-      });
+      await handleDeleteList(list);
     }, 800);
+  }
+
+  async function handleExportDB() {
+    setShowDbMenu(false);
+    const data = await exportDB();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = URL.createObjectURL(blob);
+    a.download = `jsl-backup-${date}.json`;
+    a.click();
+  }
+
+  function handleImportFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        setImportPending(data);
+      } catch {
+        toast('Invalid file — could not parse JSON');
+      }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleConfirmImport() {
+    if (!importPending) return;
+    try {
+      await importDB(importPending);
+      setImportPending(null);
+      await loadLists();
+      toast('Data imported successfully');
+    } catch {
+      toast('Import failed — invalid backup format');
+      setImportPending(null);
+    }
   }
 
   function cancelLongPress() {
@@ -1053,8 +1109,18 @@ function ListsScreen({ onOpen }) {
         <div class="header-right">
           <${IconLock}/>
           <span class="private-badge">100% private</span>
+          <div class="overflow-menu-wrap" ref=${dbMenuRef}>
+            <button class="icon-btn" onClick=${() => setShowDbMenu(v => !v)}><${IconMore}/></button>
+            ${showDbMenu && html`
+              <div class="overflow-menu">
+                <button onClick=${handleExportDB}>Export all data</button>
+                <button onClick=${() => { setShowDbMenu(false); importFileRef.current?.click(); }}>Import data</button>
+              </div>
+            `}
+          </div>
         </div>
       </header>
+      <input ref=${importFileRef} type="file" accept=".json" style="display:none" onChange=${handleImportFile} />
 
       <div class="screen">
         ${lists.length === 0 && html`
@@ -1093,8 +1159,8 @@ function ListsScreen({ onOpen }) {
                   <div class="list-card-progress-fill" style="width: ${(list.checked / list.total) * 100}%"></div>
                 </div>
               `}
-              <button class="list-card-dup" title="Duplicate list" onClick=${e => handleDuplicate(e, list)}>
-                <${IconCopy}/>
+              <button class="list-card-del" title="Delete list" onClick=${e => handleDeleteCard(e, list)}>
+                <${IconTrash}/>
               </button>
             </div>
           `)}
@@ -1104,6 +1170,14 @@ function ListsScreen({ onOpen }) {
       <button class="fab" onClick=${handleCreate} title="New list">
         <${IconPlus}/>
       </button>
+
+      ${importPending && html`
+        <${ConfirmDialog}
+          message=${`Import ${importPending.lists?.length ?? 0} list(s) with ${importPending.items?.length ?? 0} items? This will replace ALL current data.`}
+          onConfirm=${handleConfirmImport}
+          onCancel=${() => setImportPending(null)}
+          confirmLabel="Replace" />
+      `}
     </div>
   `;
 }
