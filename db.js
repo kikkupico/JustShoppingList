@@ -177,6 +177,19 @@ export async function clearChecked(listId) {
   await db.items.where('listId').equals(listId).and(i => i.checked).delete();
 }
 
+export async function syncItems(listId, items) {
+  initDB();
+  if (usingLocalStorage) {
+    const otherItems = lsItems().filter(i => i.listId !== listId);
+    lsSaveItems([...otherItems, ...items]);
+    return;
+  }
+  await db.transaction('rw', db.items, async () => {
+    await db.items.where('listId').equals(listId).delete();
+    await db.items.bulkAdd(items);
+  });
+}
+
 export async function setAllChecked(listId, checked) {
   initDB();
   if (usingLocalStorage) {

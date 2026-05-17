@@ -113,6 +113,8 @@ body {
   transition: background var(--transition);
 }
 .icon-btn:hover { background: var(--bg); }
+.icon-btn:disabled { opacity: 0.3; cursor: default; }
+.icon-btn:disabled:hover { background: none; }
 
 /* Lists screen */
 .screen { flex: 1; padding: 1rem; max-width: 720px; margin: 0 auto; width: 100%; }
@@ -230,14 +232,26 @@ body {
 .list-header {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 0 0.75rem;
+  padding: 0 0.5rem;
   height: 56px;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.25rem;
   position: sticky;
   top: 0;
   z-index: 100;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+@media (max-width: 500px) {
+  .btn-text { display: none; }
+  .add-header-btn { padding: 0.28rem 0.45rem; }
+  .sort-label { display: none; }
 }
 
 .icon-btn.active { color: var(--primary); }

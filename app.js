@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@
 import { html } from 'https://esm.sh/htm@3.1.1/preact';
 import {
   createList, getLists, updateListName, deleteList,
-  addItem, getItems, toggleItem, deleteItem, clearChecked, setAllChecked, updateItem,
+  addItem, getItems, toggleItem, deleteItem, clearChecked, setAllChecked, updateItem, syncItems,
   exportDB, importDB,
 } from './db.js';
 import { initOCR, recogniseReceipt, isOCRReady } from './ocr.js';
@@ -102,6 +102,49 @@ const IconTrash = () => html`<svg width="15" height="15" viewBox="0 0 24 24" fil
 
 const IconEye = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const IconEyeOff = () => html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
+const IconUndo = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>`;
+const IconRedo = () => html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>`;
+
+// ─── Undo/Redo Hook ────────────────────────────────────────────────────────────
+
+function useHistory(onRestore) {
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+
+  const pushState = useCallback((state) => {
+    // Only push if different from last
+    setUndoStack(prev => {
+      const last = prev[prev.length - 1];
+      if (last && JSON.stringify(last) === JSON.stringify(state)) return prev;
+      return [...prev.slice(-49), state]; // Limit to 50 steps
+    });
+    setRedoStack([]);
+  }, []);
+
+  const undo = useCallback((currentState) => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    setRedoStack(prev => [...prev, currentState]);
+    onRestore(previous);
+  }, [undoStack, onRestore]);
+
+  const redo = useCallback((currentState) => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, -1));
+    setUndoStack(prev => [...prev, currentState]);
+    onRestore(next);
+  }, [redoStack, onRestore]);
+
+  const clear = useCallback(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+  }, []);
+
+  return { pushState, undo, redo, clear, canUndo: undoStack.length > 0, canRedo: redoStack.length > 0 };
+}
 
 // ─── Toast ─────────────────────────────────────────────────────────────────────
 
@@ -558,6 +601,20 @@ function ListView({ listId, listName: initialName, onBack }) {
     setItems(data);
   }, [listId]);
 
+  const onRestore = useCallback(async (snapshot) => {
+    await syncItems(listId, snapshot.items);
+    if (snapshot.name !== listName) {
+      await updateListName(listId, snapshot.name);
+      setListName(snapshot.name);
+    }
+    loadItems();
+  }, [listId, listName, loadItems]);
+
+  const { pushState, undo, redo, canUndo, canRedo } = useHistory(onRestore);
+
+  const takeSnapshot = useCallback(() => {
+    pushState({ items: JSON.parse(JSON.stringify(items)), name: listName });
+  }, [items, listName, pushState]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
@@ -599,13 +656,17 @@ function ListView({ listId, listName: initialName, onBack }) {
     const existing = new Set(items.map(i => i.name.toLowerCase()));
     const toAdd = [...new Set(lines)].map(parseItemLine)
       .filter(item => item.name && !existing.has(item.name.toLowerCase()));
-    await Promise.all(toAdd.map(item => addItem(listId, {
-      name: item.name,
-      qty: item.qty,
-      category: categorize(item.name)
-    })));
-    setAddText('');
-    loadItems();
+    
+    if (toAdd.length) {
+      takeSnapshot();
+      await Promise.all(toAdd.map(item => addItem(listId, {
+        name: item.name,
+        qty: item.qty,
+        category: categorize(item.name)
+      })));
+      setAddText('');
+      loadItems();
+    }
   }
 
   function handlePaste(e) {
@@ -619,23 +680,19 @@ function ListView({ listId, listName: initialName, onBack }) {
   }
 
   async function handleToggle(id) {
+    takeSnapshot();
     vibrate(10);
     await toggleItem(id);
     loadItems();
   }
 
   async function handleDelete(id) {
-    vibrate(10);
     const item = items.find(i => i.id === id);
     if (!item) return;
+    takeSnapshot();
+    vibrate(10);
     await deleteItem(id);
     loadItems();
-    toast(`Deleted "${item.name}"`, {
-      fn: async () => {
-        await addItem(listId, { ...item });
-        loadItems();
-      }
-    });
   }
 
   async function handleRecategorize(id, cat = null) {
@@ -649,6 +706,7 @@ function ListView({ listId, listName: initialName, onBack }) {
       nextCat = categories[(currentIdx + 1) % categories.length];
     }
     
+    takeSnapshot();
     await updateItem(id, { category: nextCat });
     loadItems();
   }
@@ -695,6 +753,7 @@ function ListView({ listId, listName: initialName, onBack }) {
   async function handleIncreaseQty(id) {
     const item = items.find(i => i.id === id);
     if (item) {
+      takeSnapshot();
       await updateItem(id, { qty: item.qty + 1 });
       loadItems();
     }
@@ -703,6 +762,7 @@ function ListView({ listId, listName: initialName, onBack }) {
   async function handleDecreaseQty(id) {
     const item = items.find(i => i.id === id);
     if (item && item.qty > 1) {
+      takeSnapshot();
       await updateItem(id, { qty: item.qty - 1 });
       loadItems();
     }
@@ -717,6 +777,7 @@ function ListView({ listId, listName: initialName, onBack }) {
 
     if (newName === currentName) {
       if (qty !== currentItem.qty) {
+        takeSnapshot();
         await updateItem(id, { qty });
       }
       setEditingId(null);
@@ -728,6 +789,7 @@ function ListView({ listId, listName: initialName, onBack }) {
       i.id !== id && i.name.toLowerCase().trim() === newName && i.checked === currentItem.checked
     );
 
+    takeSnapshot();
     if (existingItem) {
       await updateItem(existingItem.id, { qty: existingItem.qty + qty });
       await deleteItem(id);
@@ -742,35 +804,33 @@ function ListView({ listId, listName: initialName, onBack }) {
 
   async function handleRename(name) {
     const trimmed = name.trim() || todayName();
-    setListName(trimmed);
-    await updateListName(listId, trimmed);
+    if (trimmed !== listName) {
+      takeSnapshot();
+      setListName(trimmed);
+      await updateListName(listId, trimmed);
+    }
   }
 
   async function handleClearChecked() {
     setShowMenu(false);
     const toClear = items.filter(i => i.checked);
     if (!toClear.length) return;
+    takeSnapshot();
     vibrate(10);
     await clearChecked(listId);
     loadItems();
-    toast(`Cleared ${toClear.length} items`, {
-      fn: async () => {
-        for (const item of toClear) {
-          await addItem(listId, { ...item });
-        }
-        loadItems();
-      }
-    });
   }
 
   async function handleUncheckAll() {
     setShowMenu(false);
+    takeSnapshot();
     await setAllChecked(listId, false);
     loadItems();
   }
 
   async function handleCheckAll() {
     setShowMenu(false);
+    takeSnapshot();
     await setAllChecked(listId, true);
     loadItems();
   }
@@ -835,37 +895,41 @@ function ListView({ listId, listName: initialName, onBack }) {
   return html`
     <div class="list-view">
       <div class="list-header">
-        <button class="icon-btn" onClick=${onBack}><${IconBack}/></button>
+        <button class="icon-btn" onClick=${onBack} title="Back"><${IconBack}/></button>
         <input class="list-name-input" name="list-name" id="list-name" value=${listName}
           onInput=${e => setListName(e.target.value)}
           onBlur=${e => handleRename(e.target.value)}
           onKeyDown=${e => e.key === 'Enter' && e.target.blur()}
         />
-        <button class="icon-btn sort-btn ${sort !== 'manual' ? 'active' : ''}"
-          onClick=${() => setSort(s => s === 'manual' ? 'alpha' : s === 'alpha' ? 'recent' : s === 'recent' ? 'category' : 'manual')}
-          title=${sortTitle}>
-          <${IconSort}/>
-          <span class="sort-label">${sortLabel}</span>
-        </button>
-        <button class="icon-btn ${!showChecked ? 'active' : ''}"
-          onClick=${() => setShowChecked(v => !v)}
-          title=${showChecked ? 'Hide checked items' : 'Show checked items'}>
-          <${showChecked ? IconEye : IconEyeOff}/>
-        </button>
-        <button class="add-header-btn ${showAdd ? 'active' : ''}" onClick=${toggleAdd} title="Add item">
-          <${IconPlus}/> Add
-        </button>
-        <div class="overflow-menu-wrap" ref=${menuRef}>
-          <button class="icon-btn" onClick=${() => setShowMenu(v => !v)}><${IconMore}/></button>
-          ${showMenu && html`
-            <div class="overflow-menu">
-              <button onClick=${handleUncheckAll}>Uncheck all</button>
-              <button onClick=${handleCheckAll}>Check all</button>
-              <button onClick=${handleClearChecked}>Clear checked</button>
-              <button onClick=${handleExportJSON}>Export JSON</button>
-              <button onClick=${handleShareURL}>Share as URL</button>
-            </div>
-          `}
+        <div class="header-actions">
+          <button class="icon-btn" disabled=${!canUndo} onClick=${() => undo({ items, name: listName })} title="Undo"><${IconUndo}/></button>
+          <button class="icon-btn" disabled=${!canRedo} onClick=${() => redo({ items, name: listName })} title="Redo"><${IconRedo}/></button>
+          <button class="icon-btn sort-btn ${sort !== 'manual' ? 'active' : ''}"
+            onClick=${() => setSort(s => s === 'manual' ? 'alpha' : s === 'alpha' ? 'recent' : s === 'recent' ? 'category' : 'manual')}
+            title=${sortTitle}>
+            <${IconSort}/>
+            <span class="sort-label">${sortLabel}</span>
+          </button>
+          <button class="icon-btn ${!showChecked ? 'active' : ''}"
+            onClick=${() => setShowChecked(v => !v)}
+            title=${showChecked ? 'Hide checked items' : 'Show checked items'}>
+            <${showChecked ? IconEye : IconEyeOff}/>
+          </button>
+          <button class="add-header-btn ${showAdd ? 'active' : ''}" onClick=${toggleAdd} title="Add item">
+            <${IconPlus}/> <span class="btn-text">Add</span>
+          </button>
+          <div class="overflow-menu-wrap" ref=${menuRef}>
+            <button class="icon-btn" onClick=${() => setShowMenu(v => !v)} title="More"><${IconMore}/></button>
+            ${showMenu && html`
+              <div class="overflow-menu">
+                <button onClick=${handleUncheckAll}>Uncheck all</button>
+                <button onClick=${handleCheckAll}>Check all</button>
+                <button onClick=${handleClearChecked}>Clear checked</button>
+                <button onClick=${handleExportJSON}>Export JSON</button>
+                <button onClick=${handleShareURL}>Share as URL</button>
+              </div>
+            `}
+          </div>
         </div>
       </div>
 
@@ -1029,18 +1093,9 @@ function ListsScreen({ onOpen }) {
   }
 
   async function handleDeleteList(list) {
-    const itemsToDelete = await getItems(list.id);
     await deleteList(list.id);
     loadLists();
-    toast(`Deleted "${list.name}"`, {
-      fn: async () => {
-        const newId = await createList(list.name);
-        for (const item of itemsToDelete) {
-          await addItem(newId, { ...item });
-        }
-        loadLists();
-      }
-    });
+    toast(`Deleted "${list.name}"`);
   }
 
   async function handleDeleteCard(e, list) {
