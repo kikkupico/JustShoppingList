@@ -1,29 +1,129 @@
 import Dexie from 'https://esm.sh/dexie@3.2.7';
 
 let db;
+let dbInitPromise = null;
 let usingLocalStorage = false;
 let lsToastShown = false;
 
-function initDB() {
-  if (db || usingLocalStorage) return;
-  try {
-    db = new Dexie('JustShoppingListDB');
-    db.version(1).stores({
-      lists: '++id, name, createdAt, updatedAt',
-      items: '++id, listId, name, qty, category, checked, addedFrom',
-    });
-    db.version(2).stores({
-      lists: '++id, name, createdAt, updatedAt',
-      items: '++id, listId, name, qty, category, checked, addedFrom, lastCheckedAt',
-    });
-    db.open().catch(err => {
+async function initDB() {
+  if (dbInitPromise) return dbInitPromise;
+
+  dbInitPromise = (async () => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      console.warn('IndexedDB not supported/available, falling back to localStorage');
+      usingLocalStorage = true;
+      return;
+    }
+
+    try {
+      db = new Dexie('JustShoppingListDB');
+      db.version(1).stores({
+        lists: '++id, name, createdAt, updatedAt',
+        items: '++id, listId, name, qty, category, checked, addedFrom',
+      });
+      db.version(2).stores({
+        lists: '++id, name, createdAt, updatedAt',
+        items: '++id, listId, name, qty, category, checked, addedFrom, lastCheckedAt',
+      });
+
+      db.on('versionchange', () => {
+        console.log('Database version changed in another tab. Closing connection to avoid blocking.');
+        db.close();
+      });
+
+      await db.open();
+      usingLocalStorage = false;
+
+      // Request persistent storage
+      if (navigator.storage && navigator.storage.persist) {
+        try {
+          const persisted = await navigator.storage.persist();
+          console.log(`Persistent storage status: ${persisted}`);
+        } catch (e) {
+          console.warn('Failed to request storage persistence:', e);
+        }
+      }
+
+      await migrateLocalStorageToIndexedDB();
+    } catch (err) {
       console.error('Dexie open failed, falling back to localStorage:', err);
       usingLocalStorage = true;
       db = null;
-    });
+    }
+  })();
+
+  return dbInitPromise;
+}
+
+async function migrateLocalStorageToIndexedDB() {
+  try {
+    const lsListsData = JSON.parse(localStorage.getItem('jsl_lists') || 'null');
+    const lsItemsData = JSON.parse(localStorage.getItem('jsl_items') || 'null');
+
+    if (!Array.isArray(lsListsData) || lsListsData.length === 0) {
+      return;
+    }
+
+    console.log('Migrating localStorage data to IndexedDB...');
+
+    const existingLists = await db.lists.toArray();
+    const existingListsByName = new Map(existingLists.map(l => [l.name.toLowerCase().trim(), l]));
+
+    const oldToNewId = {};
+
+    for (const list of lsListsData) {
+      let targetListId;
+      const cleanName = list.name.toLowerCase().trim();
+
+      if (existingListsByName.has(cleanName)) {
+        targetListId = existingListsByName.get(cleanName).id;
+      } else {
+        targetListId = await db.lists.add({
+          name: list.name,
+          createdAt: list.createdAt || new Date().toISOString(),
+          updatedAt: list.updatedAt || new Date().toISOString()
+        });
+        existingListsByName.set(cleanName, { id: targetListId, name: list.name });
+      }
+      oldToNewId[list.id] = targetListId;
+    }
+
+    if (Array.isArray(lsItemsData) && lsItemsData.length > 0) {
+      const existingItems = await db.items.toArray();
+      const existingItemsKeySet = new Set(existingItems.map(i => `${i.listId}|${i.name.toLowerCase().trim()}`));
+
+      const itemsToAdd = [];
+      for (const item of lsItemsData) {
+        const newListId = oldToNewId[item.listId];
+        if (newListId !== undefined) {
+          const itemKey = `${newListId}|${item.name.toLowerCase().trim()}`;
+          if (!existingItemsKeySet.has(itemKey)) {
+            itemsToAdd.push({
+              listId: newListId,
+              name: item.name,
+              qty: item.qty || 1,
+              category: item.category || 'other',
+              checked: item.checked || false,
+              addedFrom: item.addedFrom || 'manual',
+              lastCheckedAt: item.lastCheckedAt || null
+            });
+            existingItemsKeySet.add(itemKey);
+          }
+        }
+      }
+
+      if (itemsToAdd.length > 0) {
+        await db.items.bulkAdd(itemsToAdd);
+      }
+    }
+
+    localStorage.removeItem('jsl_lists');
+    localStorage.removeItem('jsl_items');
+    console.log('Migration from localStorage to IndexedDB complete.');
+
+    window.dispatchEvent(new CustomEvent('jsl-toast', { detail: { msg: 'Migrated offline storage to browser database.' } }));
   } catch (e) {
-    usingLocalStorage = true;
-    db = null;
+    console.error('Failed to migrate localStorage data to IndexedDB:', e);
   }
 }
 
@@ -48,7 +148,7 @@ function showLSToast() {
 export function isUsingLocalStorage() { return usingLocalStorage; }
 
 export async function createList(name) {
-  initDB();
+  await initDB();
   const now = new Date().toISOString();
   if (usingLocalStorage) {
     showLSToast();
@@ -61,13 +161,13 @@ export async function createList(name) {
 }
 
 export async function getLists() {
-  initDB();
+  await initDB();
   if (usingLocalStorage) return lsLists().slice().reverse();
   return db.lists.toArray().then(arr => arr.reverse());
 }
 
 export async function updateListName(id, name) {
-  initDB();
+  await initDB();
   const now = new Date().toISOString();
   if (usingLocalStorage) {
     lsSaveLists(lsLists().map(l => l.id === id ? { ...l, name, updatedAt: now } : l));
@@ -77,7 +177,7 @@ export async function updateListName(id, name) {
 }
 
 export async function deleteList(id) {
-  initDB();
+  await initDB();
   if (usingLocalStorage) {
     lsSaveLists(lsLists().filter(l => l.id !== id));
     lsSaveItems(lsItems().filter(i => i.listId !== id));
@@ -88,7 +188,7 @@ export async function deleteList(id) {
 }
 
 export async function addItem(listId, { name, qty = 1, category = 'other', addedFrom = 'manual', checked = false, lastCheckedAt = null }) {
-  initDB();
+  await initDB();
   const now = new Date().toISOString();
   if (usingLocalStorage) {
     const items = lsItems();
@@ -103,13 +203,13 @@ export async function addItem(listId, { name, qty = 1, category = 'other', added
 }
 
 export async function getItems(listId) {
-  initDB();
+  await initDB();
   if (usingLocalStorage) return lsItems().filter(i => i.listId === listId);
   return db.items.where('listId').equals(listId).toArray();
 }
 
 export async function toggleItem(id) {
-  initDB();
+  await initDB();
   if (usingLocalStorage) {
     lsSaveItems(lsItems().map(i => {
       if (i.id !== id) return i;
@@ -125,7 +225,7 @@ export async function toggleItem(id) {
 }
 
 export async function deleteItem(id) {
-  initDB();
+  await initDB();
   if (usingLocalStorage) {
     lsSaveItems(lsItems().filter(i => i.id !== id));
     return;
@@ -134,7 +234,7 @@ export async function deleteItem(id) {
 }
 
 export async function updateItem(id, changes) {
-  initDB();
+  await initDB();
   if (usingLocalStorage) {
     lsSaveItems(lsItems().map(i => i.id === id ? { ...i, ...changes } : i));
     return;
@@ -143,7 +243,7 @@ export async function updateItem(id, changes) {
 }
 
 export async function duplicateList(sourceId, newName) {
-  initDB();
+  await initDB();
   const now = new Date().toISOString();
   const sourceItems = await getItems(sourceId);
   const unchecked = sourceItems.filter(i => !i.checked);
@@ -169,7 +269,7 @@ export async function duplicateList(sourceId, newName) {
 }
 
 export async function clearChecked(listId) {
-  initDB();
+  await initDB();
   if (usingLocalStorage) {
     lsSaveItems(lsItems().filter(i => !(i.listId === listId && i.checked)));
     return;
@@ -178,7 +278,7 @@ export async function clearChecked(listId) {
 }
 
 export async function syncItems(listId, items) {
-  initDB();
+  await initDB();
   if (usingLocalStorage) {
     const otherItems = lsItems().filter(i => i.listId !== listId);
     lsSaveItems([...otherItems, ...items]);
@@ -191,7 +291,7 @@ export async function syncItems(listId, items) {
 }
 
 export async function setAllChecked(listId, checked) {
-  initDB();
+  await initDB();
   if (usingLocalStorage) {
     lsSaveItems(lsItems().map(i => i.listId === listId ? { ...i, checked } : i));
     return;
@@ -201,7 +301,7 @@ export async function setAllChecked(listId, checked) {
 }
 
 export async function exportDB() {
-  initDB();
+  await initDB();
   let lists, items;
   if (usingLocalStorage) {
     lists = lsLists();
@@ -214,7 +314,7 @@ export async function exportDB() {
 }
 
 export async function importDB(data) {
-  initDB();
+  await initDB();
   if (!data || !Array.isArray(data.lists) || !Array.isArray(data.items)) {
     throw new Error('Invalid backup format');
   }
