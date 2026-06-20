@@ -154,17 +154,20 @@ function ToastContainer() {
   useEffect(() => {
     const handler = (e) => {
       const id = Date.now();
-      const { msg, action } = e.detail;
-      setToasts(t => [...t, { id, msg, action }]);
-      setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 5000);
+      const { msg, action, sticky } = e.detail;
+      setToasts(t => [...t, { id, msg, action, sticky }]);
+      // Sticky toasts (e.g. the backup reminder) stay until dismissed.
+      if (!sticky) setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 5000);
     };
     window.addEventListener('jsl-toast', handler);
     return () => window.removeEventListener('jsl-toast', handler);
   }, []);
 
+  const dismiss = (t) => setToasts(curr => curr.filter(x => x.id !== t.id));
+
   const handleAction = (t) => {
     if (t.action && t.action.fn) t.action.fn();
-    setToasts(curr => curr.filter(x => x.id !== t.id));
+    dismiss(t);
   };
 
   return html`
@@ -175,14 +178,40 @@ function ToastContainer() {
           ${t.action && html`
             <button class="toast-action" onClick=${() => handleAction(t)}>${t.action.label || 'Undo'}</button>
           `}
+          ${t.sticky && html`
+            <button class="toast-dismiss" onClick=${() => dismiss(t)}>Later</button>
+          `}
         </div>
       `)}
     </div>
   `;
 }
 
-function toast(msg, action = null) {
-  window.dispatchEvent(new CustomEvent('jsl-toast', { detail: { msg, action } }));
+function toast(msg, action = null, opts = {}) {
+  window.dispatchEvent(new CustomEvent('jsl-toast', { detail: { msg, action, sticky: opts.sticky || false } }));
+}
+
+// ─── Backup reminder ─────────────────────────────────────────────────────────
+
+const BACKUP_KEY = 'jsl_last_backup';
+const FIRST_SEEN_KEY = 'jsl_first_seen';
+const REMIND_AFTER_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function recordBackup() {
+  try { localStorage.setItem(BACKUP_KEY, String(Date.now())); } catch { /* ignore */ }
+}
+
+// Returns true when there's data and it's been a while since the last file backup.
+function backupReminderDue(hasData) {
+  if (!hasData) return false;
+  let firstSeen = Number(localStorage.getItem(FIRST_SEEN_KEY));
+  if (!firstSeen) {
+    firstSeen = Date.now();
+    try { localStorage.setItem(FIRST_SEEN_KEY, String(firstSeen)); } catch { /* ignore */ }
+  }
+  const last = Number(localStorage.getItem(BACKUP_KEY)) || firstSeen;
+  return Date.now() - last > REMIND_AFTER_DAYS * DAY_MS;
 }
 
 function vibrate(ms = 10) {
@@ -1075,6 +1104,19 @@ function ListsScreen({ onOpen }) {
 
   useEffect(() => { loadLists(); }, [loadLists]);
 
+  // Periodic reminder to export a file backup (shown at most once per session).
+  useEffect(() => {
+    if (sessionStorage.getItem('jsl_backup_reminded')) return;
+    const hasData = lists.some(l => l.total > 0);
+    if (!backupReminderDue(hasData)) return;
+    sessionStorage.setItem('jsl_backup_reminded', '1');
+    toast(
+      'Tip: back up your lists to a file so they survive a browser data wipe.',
+      { label: 'Back up now', fn: handleExportDB },
+      { sticky: true },
+    );
+  }, [lists]);
+
   useEffect(() => {
     function handleClick(e) {
       if (dbMenuRef.current && !dbMenuRef.current.contains(e.target)) setShowDbMenu(false);
@@ -1120,6 +1162,7 @@ function ListsScreen({ onOpen }) {
     a.href = URL.createObjectURL(blob);
     a.download = `jsl-backup-${date}.json`;
     a.click();
+    recordBackup();
   }
 
   function handleImportFile(e) {
@@ -1273,6 +1316,12 @@ function App() {
 
   useEffect(() => {
     initOCR().catch(() => {});
+
+    // Ask the browser to keep our storage from being auto-evicted. Granted
+    // readily for installed PWAs; helps non-installed Chrome tabs too.
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(() => {});
+    }
 
     // Check for shared list URL
     const params = new URLSearchParams(location.search);

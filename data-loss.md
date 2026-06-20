@@ -100,16 +100,23 @@ cannot be defended against from inside the page.
 
 ### How to make it genuinely bulletproof (no backend, stays private)
 
-1. **Install the app** (Add to Home Screen / install icon). Installed PWAs are
-   exempt from the ~7-day eviction.
+1. **Install the app** (Add to Home Screen / install icon). Installed PWAs get
+   **persistent storage**, which is **exempt from automatic eviction** — the
+   ~7-day cap and disk-pressure cleanup no longer apply. This covers localStorage
+   too. It does **not** protect against the user *manually* clearing site data or
+   uninstalling.
 2. **Use the file backup** in the ⋯ menu ("Export all data") periodically. A JSON
    file on the device survives any browser wipe; "Import data" restores it.
 
 Because the app is intentionally **backend-free and private** (no cloud sync), a
 file export is the only thing that survives a true device/browser reset.
 
-## Possible follow-up
+## Built-in safeguards
 
-A gentle **periodic backup reminder** (e.g. a toast every N days or after large
-changes) would close most of the remaining gap without adding any server. Not yet
-implemented.
+- **Persistent-storage request on startup** — the app calls
+  `navigator.storage.persist()` on load. Installed PWAs are granted readily; it
+  also improves the odds for a plain Chrome tab.
+- **Periodic backup reminder** — if there's data and it's been more than 7 days
+  since the last file backup (tracked via `jsl_last_backup`, seeded from
+  `jsl_first_seen`), a sticky toast suggests "Back up now". Shown at most once per
+  session; exporting resets the 7-day timer.
