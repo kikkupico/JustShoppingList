@@ -5,6 +5,30 @@ let dbInitPromise = null;
 let usingLocalStorage = false;
 let lsToastShown = false;
 
+// Single key holding a full snapshot of all data. This is BOTH:
+//  - the localStorage fallback store (when IndexedDB is unavailable), and
+//  - a redundant backup mirror of IndexedDB (refreshed after every write).
+// It is never deleted, so if IndexedDB fails to open or gets evicted, the
+// user's data is still here and can be shown / restored instead of a blank app.
+const MIRROR_KEY = 'jsl_mirror';
+
+function buildDexie() {
+  const d = new Dexie('JustShoppingListDB');
+  d.version(1).stores({
+    lists: '++id, name, createdAt, updatedAt',
+    items: '++id, listId, name, qty, category, checked, addedFrom',
+  });
+  d.version(2).stores({
+    lists: '++id, name, createdAt, updatedAt',
+    items: '++id, listId, name, qty, category, checked, addedFrom, lastCheckedAt',
+  });
+  d.on('versionchange', () => {
+    console.log('Database version changed in another tab. Closing connection to avoid blocking.');
+    d.close();
+  });
+  return d;
+}
+
 async function initDB() {
   if (dbInitPromise) return dbInitPromise;
 
@@ -12,44 +36,65 @@ async function initDB() {
     if (typeof window === 'undefined' || !window.indexedDB) {
       console.warn('IndexedDB not supported/available, falling back to localStorage');
       usingLocalStorage = true;
+      ensureMirrorFromLegacy();
       return;
     }
 
-    try {
-      db = new Dexie('JustShoppingListDB');
-      db.version(1).stores({
-        lists: '++id, name, createdAt, updatedAt',
-        items: '++id, listId, name, qty, category, checked, addedFrom',
-      });
-      db.version(2).stores({
-        lists: '++id, name, createdAt, updatedAt',
-        items: '++id, listId, name, qty, category, checked, addedFrom, lastCheckedAt',
-      });
-
-      db.on('versionchange', () => {
-        console.log('Database version changed in another tab. Closing connection to avoid blocking.');
-        db.close();
-      });
-
-      await db.open();
-      usingLocalStorage = false;
-
-      // Request persistent storage
-      if (navigator.storage && navigator.storage.persist) {
-        try {
-          const persisted = await navigator.storage.persist();
-          console.log(`Persistent storage status: ${persisted}`);
-        } catch (e) {
-          console.warn('Failed to request storage persistence:', e);
-        }
+    // Retry opening before giving up — a single transient failure on reload
+    // must NOT drop the user into an empty fallback store.
+    let opened = false;
+    for (let attempt = 0; attempt < 3 && !opened; attempt++) {
+      try {
+        db = buildDexie();
+        await db.open();
+        opened = true;
+      } catch (err) {
+        console.error(`Dexie open attempt ${attempt + 1} failed:`, err);
+        try { db.close(); } catch { /* ignore */ }
+        db = null;
+        await new Promise(r => setTimeout(r, 150 * (attempt + 1)));
       }
+    }
 
-      await migrateLocalStorageToIndexedDB();
-    } catch (err) {
-      console.error('Dexie open failed, falling back to localStorage:', err);
+    if (!opened) {
+      // Could not open IndexedDB. Fall back to the mirror, which still holds
+      // the last known-good data — do NOT show an empty list.
+      console.error('IndexedDB could not be opened after retries; using local backup.');
       usingLocalStorage = true;
       db = null;
+      ensureMirrorFromLegacy();
+      const mirror = readMirror();
+      window.dispatchEvent(new CustomEvent('jsl-toast', {
+        detail: {
+          msg: (mirror && mirror.lists.length)
+            ? 'Database busy — showing your data from local backup.'
+            : 'Storage is having trouble — changes may not persist.',
+        },
+      }));
+      return;
     }
+
+    usingLocalStorage = false;
+
+    // Request persistent storage so the browser is less likely to evict data.
+    if (navigator.storage && navigator.storage.persist) {
+      try {
+        const persisted = await navigator.storage.persist();
+        console.log(`Persistent storage status: ${persisted}`);
+        if (!persisted && !sessionStorage.getItem('jsl_persist_warned')) {
+          sessionStorage.setItem('jsl_persist_warned', '1');
+          window.dispatchEvent(new CustomEvent('jsl-toast', {
+            detail: { msg: 'Tip: install this app (or back up via the menu) to keep your lists safe.' },
+          }));
+        }
+      } catch (e) {
+        console.warn('Failed to request storage persistence:', e);
+      }
+    }
+
+    await migrateLocalStorageToIndexedDB();
+    await restoreFromMirrorIfEmpty();
+    await refreshMirror();
   })();
 
   return dbInitPromise;
@@ -127,16 +172,88 @@ async function migrateLocalStorageToIndexedDB() {
   }
 }
 
-// localStorage fallback helpers
-function lsGet(key) {
-  try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
-}
-function lsSet(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+// ─── Backup mirror ──────────────────────────────────────────────────────────
 
-function lsLists() { return lsGet('jsl_lists') || []; }
-function lsItems() { return lsGet('jsl_items') || []; }
-function lsSaveLists(v) { lsSet('jsl_lists', v); }
-function lsSaveItems(v) { lsSet('jsl_items', v); }
+function readMirror() {
+  try {
+    const raw = localStorage.getItem(MIRROR_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.lists) || !Array.isArray(data.items)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function writeMirror(lists, items) {
+  try {
+    localStorage.setItem(MIRROR_KEY, JSON.stringify({
+      lists, items, savedAt: new Date().toISOString(),
+    }));
+  } catch (e) {
+    console.warn('Failed to write local backup mirror:', e);
+  }
+}
+
+// Snapshot the current IndexedDB contents into the mirror. Cheap for the data
+// sizes this app deals with, and guarantees the backup is always consistent.
+async function refreshMirror() {
+  if (usingLocalStorage || !db) return;
+  try {
+    const [lists, items] = await Promise.all([db.lists.toArray(), db.items.toArray()]);
+    writeMirror(lists, items);
+  } catch (e) {
+    console.warn('Backup mirror refresh failed:', e);
+  }
+}
+
+// If IndexedDB opened but is empty while the mirror holds data, the DB was
+// almost certainly evicted/corrupted (the mirror tracks deletes too, so an
+// intentional "delete everything" leaves the mirror empty as well). Restore it.
+async function restoreFromMirrorIfEmpty() {
+  try {
+    const mirror = readMirror();
+    if (!mirror || mirror.lists.length === 0) return;
+    const existing = await db.lists.count();
+    if (existing > 0) return;
+
+    console.warn('IndexedDB empty but local backup found — restoring.');
+    await db.transaction('rw', db.lists, db.items, async () => {
+      if (mirror.lists.length) await db.lists.bulkAdd(mirror.lists);
+      if (mirror.items.length) await db.items.bulkAdd(mirror.items);
+    });
+    window.dispatchEvent(new CustomEvent('jsl-toast', {
+      detail: { msg: 'Recovered your lists from local backup.' },
+    }));
+  } catch (e) {
+    console.error('Failed to restore from local backup:', e);
+  }
+}
+
+// Convert any legacy localStorage data (old format) into the mirror, so the
+// fallback store is populated when we never reach IndexedDB.
+function ensureMirrorFromLegacy() {
+  if (readMirror()) return;
+  try {
+    const legacyLists = JSON.parse(localStorage.getItem('jsl_lists') || 'null');
+    const legacyItems = JSON.parse(localStorage.getItem('jsl_items') || 'null');
+    if (Array.isArray(legacyLists) && legacyLists.length) {
+      writeMirror(legacyLists, Array.isArray(legacyItems) ? legacyItems : []);
+    } else {
+      writeMirror([], []);
+    }
+  } catch {
+    writeMirror([], []);
+  }
+}
+
+// ─── localStorage fallback helpers (canonical store = the mirror) ────────────
+
+function lsLists() { return (readMirror() || { lists: [] }).lists || []; }
+function lsItems() { return (readMirror() || { items: [] }).items || []; }
+function lsSaveLists(v) { const m = readMirror() || { lists: [], items: [] }; writeMirror(v, m.items || []); }
+function lsSaveItems(v) { const m = readMirror() || { lists: [], items: [] }; writeMirror(m.lists || [], v); }
 function lsNextId(arr) { return arr.length ? Math.max(...arr.map(x => x.id)) + 1 : 1; }
 
 function showLSToast() {
@@ -157,7 +274,9 @@ export async function createList(name) {
     lsSaveLists([...lists, newList]);
     return newList.id;
   }
-  return db.lists.add({ name, createdAt: now, updatedAt: now });
+  const id = await db.lists.add({ name, createdAt: now, updatedAt: now });
+  await refreshMirror();
+  return id;
 }
 
 export async function getLists() {
@@ -173,7 +292,8 @@ export async function updateListName(id, name) {
     lsSaveLists(lsLists().map(l => l.id === id ? { ...l, name, updatedAt: now } : l));
     return;
   }
-  return db.lists.update(id, { name, updatedAt: now });
+  await db.lists.update(id, { name, updatedAt: now });
+  await refreshMirror();
 }
 
 export async function deleteList(id) {
@@ -185,6 +305,7 @@ export async function deleteList(id) {
   }
   await db.items.where('listId').equals(id).delete();
   await db.lists.delete(id);
+  await refreshMirror();
 }
 
 export async function addItem(listId, { name, qty = 1, category = 'other', addedFrom = 'manual', checked = false, lastCheckedAt = null }) {
@@ -199,6 +320,7 @@ export async function addItem(listId, { name, qty = 1, category = 'other', added
   }
   const id = await db.items.add({ listId, name, qty, category, checked, addedFrom, lastCheckedAt });
   await db.lists.update(listId, { updatedAt: now });
+  await refreshMirror();
   return id;
 }
 
@@ -222,6 +344,7 @@ export async function toggleItem(id) {
   if (!item) return;
   const checked = !item.checked;
   await db.items.update(id, { checked, ...(checked ? { lastCheckedAt: new Date().toISOString() } : {}) });
+  await refreshMirror();
 }
 
 export async function deleteItem(id) {
@@ -230,7 +353,8 @@ export async function deleteItem(id) {
     lsSaveItems(lsItems().filter(i => i.id !== id));
     return;
   }
-  return db.items.delete(id);
+  await db.items.delete(id);
+  await refreshMirror();
 }
 
 export async function updateItem(id, changes) {
@@ -239,7 +363,8 @@ export async function updateItem(id, changes) {
     lsSaveItems(lsItems().map(i => i.id === id ? { ...i, ...changes } : i));
     return;
   }
-  return db.items.update(id, changes);
+  await db.items.update(id, changes);
+  await refreshMirror();
 }
 
 export async function duplicateList(sourceId, newName) {
@@ -265,6 +390,7 @@ export async function duplicateList(sourceId, newName) {
     listId: newListId, name: item.name, qty: item.qty,
     category: item.category, checked: false, addedFrom: item.addedFrom,
   })));
+  await refreshMirror();
   return newListId;
 }
 
@@ -275,6 +401,7 @@ export async function clearChecked(listId) {
     return;
   }
   await db.items.where('listId').equals(listId).and(i => i.checked).delete();
+  await refreshMirror();
 }
 
 export async function syncItems(listId, items) {
@@ -288,6 +415,7 @@ export async function syncItems(listId, items) {
     await db.items.where('listId').equals(listId).delete();
     await db.items.bulkAdd(items);
   });
+  await refreshMirror();
 }
 
 export async function setAllChecked(listId, checked) {
@@ -298,6 +426,7 @@ export async function setAllChecked(listId, checked) {
   }
   const ids = await db.items.where('listId').equals(listId).primaryKeys();
   await Promise.all(ids.map(id => db.items.update(id, { checked })));
+  await refreshMirror();
 }
 
 export async function exportDB() {
@@ -357,5 +486,6 @@ export async function importDB(data) {
         });
       }
     }
+    await refreshMirror();
   }
 }
