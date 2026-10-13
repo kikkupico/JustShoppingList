@@ -384,6 +384,40 @@ function processItemLine(rawText) {
   return item;
 }
 
+// ─── Smart duplicate detection (for items already on a list) ─────────────────
+
+// Canonical form of an item name: lowercase, punctuation stripped, nouns
+// singularised ("Tomatoes" → "tomato"). Word order is kept, since
+// "Chocolate Milk" and "Milk Chocolate" are different products.
+export function dedupeKey(name) {
+  const doc = nlp(name.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}\s]/gu, ' '));
+  doc.nouns().toSingular();
+  return doc.text().split(/\s+/).filter(Boolean).join(' ');
+}
+
+// Groups of items that look like the same thing: same canonical key, or a
+// one-letter typo on longer names ("Mozzarella" / "Mozarella").
+export function findDuplicateGroups(items) {
+  const keyed = items.map(item => ({ item, key: dedupeKey(item.name) })).filter(k => k.key);
+  const parent = keyed.map((_, i) => i);
+  const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < keyed.length; i++) {
+    for (let j = i + 1; j < keyed.length; j++) {
+      const a = keyed[i].key, b = keyed[j].key;
+      if (a === b || (Math.min(a.length, b.length) >= 7 && dlDistance(a, b, 1) <= 1)) {
+        parent[find(j)] = find(i);
+      }
+    }
+  }
+  const groups = new Map();
+  keyed.forEach((k, i) => {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(k.item);
+  });
+  return Array.from(groups.values()).filter(g => g.length > 1);
+}
+
 function dedupe(items) {
   const map = new Map();
   for (const item of items) {

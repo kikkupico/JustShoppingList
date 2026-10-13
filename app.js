@@ -7,7 +7,7 @@ import {
   exportDB, importDB,
 } from './db.js';
 import { initOCR, recogniseReceipt, isOCRReady } from './ocr.js';
-import { extractItemsFromText, categorize } from './parser.js';
+import { extractItemsFromText, categorize, findDuplicateGroups, dedupeKey } from './parser.js';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -616,6 +616,7 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [syncText, setSyncText] = useState('');
+  const [dupGroups, setDupGroups] = useState(null); // null = dialog closed
   const [showChecked, setShowChecked] = useState(true);
   const [showHint, setShowHint] = useState(!localStorage.getItem('jsl_swipe_hint_shown'));
   const [catOrder, setCatOrder] = useState(JSON.parse(localStorage.getItem('jsl_cat_order') || 'null') || Object.keys(CAT_CLASSES));
@@ -707,17 +708,17 @@ function ListView({ listId, listName: initialName, onBack }) {
     const seen = new Set();
     for (const line of lines) {
       const item = parseItemLine(line.replace(/^([-*•]|\[[ xX]?\])\s*/, ''));
-      const key = item.name.toLowerCase();
-      if (!item.name || seen.has(key)) continue;
+      const key = dedupeKey(item.name);
+      if (!key || seen.has(key)) continue;
       seen.add(key);
       parsed.push(item);
     }
     if (!parsed.length) return;
-    const byName = new Map(items.map(i => [i.name.toLowerCase(), i]));
+    const byName = new Map(items.map(i => [dedupeKey(i.name), i]));
     const toUncheck = [];
     const toAdd = [];
     for (const item of parsed) {
-      const existing = byName.get(item.name.toLowerCase());
+      const existing = byName.get(dedupeKey(item.name));
       if (!existing) toAdd.push(item);
       else if (existing.checked) toUncheck.push(existing);
     }
@@ -736,6 +737,29 @@ function ListView({ listId, listName: initialName, onBack }) {
     toast(`${toAdd.length} added, ${toUncheck.length} unchecked`);
     setShowSync(false);
     setSyncText('');
+  }
+
+  function handleFindDuplicates() {
+    setShowMenu(false);
+    const groups = findDuplicateGroups(items);
+    if (!groups.length) { toast('No duplicates found'); return; }
+    setDupGroups(groups);
+  }
+
+  // Merge each group into its first item: quantities add up, and the result is
+  // checked only if every copy was.
+  async function handleMergeDuplicates() {
+    takeSnapshot();
+    await Promise.all(dupGroups.flatMap(([keep, ...rest]) => [
+      updateItem(keep.id, {
+        qty: [keep, ...rest].reduce((n, i) => n + (i.qty || 1), 0),
+        checked: [keep, ...rest].every(i => i.checked),
+      }),
+      ...rest.map(i => deleteItem(i.id)),
+    ]));
+    toast(`Merged ${dupGroups.reduce((n, g) => n + g.length - 1, 0)} duplicates`);
+    setDupGroups(null);
+    loadItems();
   }
 
   function handlePaste(e) {
@@ -992,6 +1016,7 @@ function ListView({ listId, listName: initialName, onBack }) {
             ${showMenu && html`
               <div class="overflow-menu">
                 <button onClick=${() => { setShowMenu(false); setShowSync(true); }}>Paste list</button>
+                <button onClick=${handleFindDuplicates}>Find duplicates</button>
                 <button onClick=${handleUncheckAll}>Uncheck all</button>
                 <button onClick=${handleCheckAll}>Check all</button>
                 <button onClick=${handleClearChecked}>Clear checked</button>
@@ -1114,6 +1139,23 @@ function ListView({ listId, listName: initialName, onBack }) {
             <div class="confirm-actions">
               <button class="cancel-btn" onClick=${() => setShowSync(false)}>Cancel</button>
               <button class="primary-btn" onClick=${handleSyncList}>Update list</button>
+            </div>
+          </div>
+        </div>
+      `}
+
+      ${dupGroups && html`
+        <div class="confirm-overlay" onClick=${() => setDupGroups(null)}>
+          <div class="confirm-box sync-box" onClick=${e => e.stopPropagation()}>
+            <p>Found ${dupGroups.length} group${dupGroups.length > 1 ? 's' : ''} of similar items. Each group is merged into its first item, adding up quantities.</p>
+            <ul class="dup-list">
+              ${dupGroups.map(g => html`
+                <li>${g.map(i => i.qty > 1 ? `${i.name} (${i.qty})` : i.name).join(' + ')}</li>
+              `)}
+            </ul>
+            <div class="confirm-actions">
+              <button class="cancel-btn" onClick=${() => setDupGroups(null)}>Cancel</button>
+              <button class="primary-btn" onClick=${handleMergeDuplicates}>Merge</button>
             </div>
           </div>
         </div>
