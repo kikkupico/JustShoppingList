@@ -614,6 +614,8 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [showReceipt, setShowReceipt] = useState(false);
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
+  const [showSync, setShowSync] = useState(false);
+  const [syncText, setSyncText] = useState('');
   const [showChecked, setShowChecked] = useState(true);
   const [showHint, setShowHint] = useState(!localStorage.getItem('jsl_swipe_hint_shown'));
   const [catOrder, setCatOrder] = useState(JSON.parse(localStorage.getItem('jsl_cat_order') || 'null') || Object.keys(CAT_CLASSES));
@@ -696,6 +698,44 @@ function ListView({ listId, listName: initialName, onBack }) {
       setAddText('');
       loadItems();
     }
+  }
+
+  // Paste a full list: existing items found in it are unchecked, new ones are added unchecked.
+  async function handleSyncList() {
+    const lines = syncText.split('\n').map(l => l.trim()).filter(Boolean);
+    const parsed = [];
+    const seen = new Set();
+    for (const line of lines) {
+      const item = parseItemLine(line.replace(/^([-*•]|\[[ xX]?\])\s*/, ''));
+      const key = item.name.toLowerCase();
+      if (!item.name || seen.has(key)) continue;
+      seen.add(key);
+      parsed.push(item);
+    }
+    if (!parsed.length) return;
+    const byName = new Map(items.map(i => [i.name.toLowerCase(), i]));
+    const toUncheck = [];
+    const toAdd = [];
+    for (const item of parsed) {
+      const existing = byName.get(item.name.toLowerCase());
+      if (!existing) toAdd.push(item);
+      else if (existing.checked) toUncheck.push(existing);
+    }
+    if (toUncheck.length || toAdd.length) {
+      takeSnapshot();
+      await Promise.all([
+        ...toUncheck.map(i => updateItem(i.id, { checked: false })),
+        ...toAdd.map(item => addItem(listId, {
+          name: item.name,
+          qty: item.qty,
+          category: categorize(item.name),
+        })),
+      ]);
+      loadItems();
+    }
+    toast(`${toAdd.length} added, ${toUncheck.length} unchecked`);
+    setShowSync(false);
+    setSyncText('');
   }
 
   function handlePaste(e) {
@@ -951,6 +991,7 @@ function ListView({ listId, listName: initialName, onBack }) {
             <button class="icon-btn" onClick=${() => setShowMenu(v => !v)} title="More"><${IconMore}/></button>
             ${showMenu && html`
               <div class="overflow-menu">
+                <button onClick=${() => { setShowMenu(false); setShowSync(true); }}>Paste list</button>
                 <button onClick=${handleUncheckAll}>Uncheck all</button>
                 <button onClick=${handleCheckAll}>Check all</button>
                 <button onClick=${handleClearChecked}>Clear checked</button>
@@ -1061,6 +1102,22 @@ function ListView({ listId, listName: initialName, onBack }) {
           </div>
         `}
       </div>
+
+      ${showSync && html`
+        <div class="confirm-overlay" onClick=${() => setShowSync(false)}>
+          <div class="confirm-box sync-box" onClick=${e => e.stopPropagation()}>
+            <p>Paste a list. Items already on the list are unchecked; new items are added unchecked.</p>
+            <textarea class="add-item-input sync-input" name="sync-list" id="sync-list" autofocus
+              placeholder="One item per line"
+              value=${syncText}
+              onInput=${e => setSyncText(e.target.value)} />
+            <div class="confirm-actions">
+              <button class="cancel-btn" onClick=${() => setShowSync(false)}>Cancel</button>
+              <button class="primary-btn" onClick=${handleSyncList}>Update list</button>
+            </div>
+          </div>
+        </div>
+      `}
 
       <button class="fab" onClick=${() => setShowReceipt(true)} title="Scan receipt">
         <${IconCamera}/>

@@ -889,6 +889,19 @@ body {
   cursor: pointer;
 }
 
+.primary-btn {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 0.5rem 1rem;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.sync-box { max-width: 420px; }
+.sync-input { flex: none; width: 100%; min-height: 8rem; max-height: 40vh; box-sizing: border-box; }
+
 /* Category dot colours */
 .cat-produce { background: var(--cat-produce); }
 .cat-dairy { background: var(--cat-dairy); }
