@@ -1,6 +1,8 @@
 import { h, render } from 'https://esm.sh/preact@10.22.0';
 import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@10.22.0/hooks';
-import { html } from 'https://esm.sh/htm@3.1.1/preact';
+import htm from 'https://esm.sh/htm@3.1.1';
+
+const html = htm.bind(h);
 import {
   createList, getLists, updateListName, deleteList,
   addItem, getItems, toggleItem, deleteItem, clearChecked, setAllChecked, updateItem, syncItems,
@@ -619,7 +621,13 @@ function ListView({ listId, listName: initialName, onBack }) {
   const [dupGroups, setDupGroups] = useState(null); // null = dialog closed
   const [showChecked, setShowChecked] = useState(true);
   const [showHint, setShowHint] = useState(!localStorage.getItem('jsl_swipe_hint_shown'));
-  const [catOrder, setCatOrder] = useState(JSON.parse(localStorage.getItem('jsl_cat_order') || 'null') || Object.keys(CAT_CLASSES));
+  const [catOrder, setCatOrder] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('jsl_cat_order') || 'null') || Object.keys(CAT_CLASSES);
+    } catch {
+      return Object.keys(CAT_CLASSES);
+    }
+  });
   const [sort, setSort] = useState('manual'); // 'manual' | 'alpha' | 'recent' | 'category'
   const [draggedCat, setDraggedCat] = useState(null);
   const [draggedItemId, setDraggedItemId] = useState(null);
@@ -1433,10 +1441,14 @@ function App() {
       history.replaceState({}, '', location.pathname);
     } else {
       // Resume last list if no import
-      const lastList = JSON.parse(localStorage.getItem('jsl_last_list') || 'null');
-      if (lastList) {
-        setActiveList(lastList);
-        setView('list');
+      try {
+        const lastList = JSON.parse(localStorage.getItem('jsl_last_list') || 'null');
+        if (lastList && lastList.id) {
+          setActiveList(lastList);
+          setView('list');
+        }
+      } catch {
+        localStorage.removeItem('jsl_last_list');
       }
     }
   }, []);

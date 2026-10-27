@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jsl-v8';
+const CACHE_NAME = 'jsl-v9';
 const VENDOR_CACHE = 'jsl-vendor'; // cross-origin modules (esm.sh); never purged on version bump
 const ASSETS = [
   './',
