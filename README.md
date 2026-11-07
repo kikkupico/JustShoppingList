@@ -4,12 +4,14 @@ A privacy-first, AI-free shopping list web app that runs entirely in your browse
 
 ## How it works
 
-Each list is a plain-text note, one item per line. Type, edit and copy/paste it like any notepad.
+Each list is a checklist, like a notes app in checklist mode: every line is an item.
 
-- Tap the circle beside a line to check it off (the keyboard stays closed).
-- Pasting a list cleans up bullets and `- [ ]` / `- [x]` checkboxes, skips items already on the list and unchecks them so they're "needed again".
-- Lines ending in `:` or starting with `#` are section labels, not items.
-- The ⋯ menu has Copy list, Copy what's left, Share, Scan a receipt, Uncheck all and Remove checked (with Undo).
+- Type to add items. Enter starts the next item, Backspace on an empty item removes it, and Backspace at the start of an item joins it to the one above.
+- Tap the circle to check an item off. Checked items stay in place, struck through.
+- Paste a list into any item (or anywhere on the page) and each line becomes an item. Bullets and `- [ ]` / `- [x]` checkboxes are cleaned up; items already on the list are skipped and unchecked so they're "needed again".
+- Items get a category automatically (on-device keyword rules, no AI). Tap the category chip to change it; your choice is remembered for that item name.
+- **Search**, **filter** (All / To buy / Done, or by category) and **sort** (My order, A–Z, Category, Recently checked) only change the view, never your list order.
+- The ⋯ menu has Copy list, Copy what's left, Share, Edit as text (the whole list as plain text), Scan a receipt, Uncheck all and Remove checked (with Undo).
 
 ## Privacy Guarantee
 

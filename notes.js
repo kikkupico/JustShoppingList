@@ -1,8 +1,15 @@
-// Pure helpers for the notepad model. No DOM, no storage — unit-tested in
+// Pure helpers for the checklist model. No DOM, no storage — unit-tested in
 // tests/notes.test.mjs.
 //
-// A list is plain text, one item per line. Checked state lives beside the text
-// as a set of line keys, so the text itself stays clean for copy/paste.
+// A list is an ordered array of items: { id, text, checked, cat, catKey, checkedAt }.
+// The array order is "my order". Search, filters and sort only change the view.
+//   cat:    category name, or null until one has been worked out
+//   catKey: the item key `cat` was worked out for; when the text changes the
+//           category is recomputed (unless the user picked one for that name)
+
+export const CATEGORIES = [
+  'produce', 'bakery', 'meat', 'seafood', 'dairy', 'frozen', 'snacks', 'drinks', 'household', 'other',
+];
 
 const BULLET_RE = /^(?:[-*•◦▪·+–]|\d{1,3}[.)])\s+/;
 const BOX_RE = /^(?:\[([ xX✓✔]?)\]|([☐☑☒✓✔✅]))\s*/;
@@ -22,67 +29,7 @@ export function parseLine(raw) {
   return { text: s.trim(), checked };
 }
 
-// Cheap key used for checked state. Runs on every keystroke.
-export function lineKey(line) {
-  return parseLine(line).text.toLowerCase().replace(/\s+/g, ' ');
-}
-
-// "Produce:" or "# Produce" — a section label, not an item.
-export function isHeader(line) {
-  const t = line.trim();
-  return t.length > 1 && (t.startsWith('#') || t.endsWith(':'));
-}
-
-export function isItem(line) {
-  return !!lineKey(line) && !isHeader(line);
-}
-
-// Drop checked keys whose line no longer exists. Returns the same Set when
-// nothing changed, so callers can skip a state update.
-export function pruneChecked(text, checked) {
-  if (!checked.size) return checked;
-  const present = new Set(text.split('\n').map(lineKey));
-  let changed = false;
-  const next = new Set();
-  for (const k of checked) {
-    if (present.has(k)) next.add(k);
-    else changed = true;
-  }
-  return changed ? next : checked;
-}
-
-export function countItems(text, checked) {
-  let total = 0, done = 0;
-  for (const line of text.split('\n')) {
-    if (!isItem(line)) continue;
-    total++;
-    if (checked.has(lineKey(line))) done++;
-  }
-  return { total, done };
-}
-
-// Unchecked items, keeping only the section headers that still have items.
-export function remainingText(text, checked) {
-  const out = [];
-  let pendingHeader = null;
-  for (const line of text.split('\n')) {
-    if (!lineKey(line)) continue;
-    if (isHeader(line)) { pendingHeader = line; continue; }
-    if (checked.has(lineKey(line))) continue;
-    if (pendingHeader !== null) { out.push(pendingHeader); pendingHeader = null; }
-    out.push(line);
-  }
-  return out.join('\n');
-}
-
-export function clearCheckedText(text, checked) {
-  return text.split('\n')
-    .filter(line => !(isItem(line) && checked.has(lineKey(line))))
-    .join('\n');
-}
-
-// "12x eggs", "2 eggs", "eggs x2", "eggs (2)" → "eggs". Used only to spot
-// duplicates; the text itself is never changed.
+// "12x eggs", "2 eggs", "eggs x2", "eggs (2)" → "eggs".
 export function stripQty(text) {
   const name = text
     .replace(/^\d{1,3}\s*[x×]\s+|^\d{1,3}\s+/i, '')
@@ -91,67 +38,183 @@ export function stripQty(text) {
   return name || text;
 }
 
-// Merge pasted text into a note at the cursor.
-//   before/after: note text on either side of the selection being replaced
-//   matchKey:     smarter key for spotting duplicates ("eggs" ≈ "egg")
-// Lines already in the note are skipped and set to the pasted check state
-// (normally unchecked — "need it again"). New lines are cleaned of bullets.
-export function mergePaste({ before, after, pasted, checked, matchKey = lineKey }) {
-  const next = new Set(checked);
+// Normalised item text: lowercase, single spaces, no bullets.
+export function lineKey(line) {
+  return parseLine(line).text.toLowerCase().replace(/\s+/g, ' ');
+}
+
+// Key for remembering a category the user picked: quantity doesn't matter.
+export function nameKey(text) {
+  return lineKey(stripQty(parseLine(text).text));
+}
+
+let seq = 0;
+export function uid() {
+  return Date.now().toString(36) + (seq++).toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+export function newItem(text = '', checked = false, extra = {}) {
+  return { id: uid(), text, checked, cat: null, catKey: null, checkedAt: checked ? new Date().toISOString() : null, ...extra };
+}
+
+export const hasText = (item) => !!item.text.trim();
+
+export function countItems(items) {
+  let total = 0, done = 0;
+  for (const i of items) {
+    if (!hasText(i)) continue;
+    total++;
+    if (i.checked) done++;
+  }
+  return { total, done };
+}
+
+// ─── View: search, filters, sort ──────────────────────────────────────────────
+
+export function matchesQuery(item, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return item.text.toLowerCase().includes(q) || (item.cat || 'other').startsWith(q);
+}
+
+// status: 'all' | 'todo' | 'done'.  sort: 'mine' | 'az' | 'category' | 'recent'.
+// `keep` holds ids that stay visible even if a filter would hide them (an item
+// that was just checked, so it doesn't vanish under your finger).
+export function viewItems(items, { query = '', status = 'all', cat = null, sort = 'mine', keep = null } = {}) {
+  const visible = items.filter(i => {
+    if (keep && keep.has(i.id)) return true;
+    if (status === 'todo' && i.checked) return false;
+    if (status === 'done' && !i.checked) return false;
+    if (cat && (i.cat || 'other') !== cat) return false;
+    return matchesQuery(i, query);
+  });
+  const pos = new Map(items.map((i, n) => [i.id, n]));
+  const byMine = (a, b) => pos.get(a.id) - pos.get(b.id);
+  if (sort === 'az') {
+    return visible.sort((a, b) => stripQty(a.text).localeCompare(stripQty(b.text), undefined, { sensitivity: 'base' }) || byMine(a, b));
+  }
+  if (sort === 'category') {
+    const rank = (i) => { const r = CATEGORIES.indexOf(i.cat || 'other'); return r === -1 ? CATEGORIES.length : r; };
+    return visible.sort((a, b) => rank(a) - rank(b) || byMine(a, b));
+  }
+  if (sort === 'recent') {
+    // Most recently checked first, then everything else in my order.
+    return visible.sort((a, b) => {
+      const ta = a.checked ? a.checkedAt || '' : '', tb = b.checked ? b.checkedAt || '' : '';
+      return tb.localeCompare(ta) || byMine(a, b);
+    });
+  }
+  return visible.sort(byMine);
+}
+
+// ─── Text in / out ────────────────────────────────────────────────────────────
+
+export function itemsToText(items, { markChecked = false, onlyUnchecked = false } = {}) {
+  return items
+    .filter(i => hasText(i) && !(onlyUnchecked && i.checked))
+    .map(i => (markChecked && i.checked ? `[x] ${i.text}` : i.text))
+    .join('\n');
+}
+
+// Turn edited text back into items. Lines that match an existing item keep
+// its id and category, so editing as text doesn't lose anything.
+export function textToItems(text, existing = []) {
+  const pool = new Map();
+  for (const i of existing) {
+    const k = lineKey(i.text);
+    if (!pool.has(k)) pool.set(k, []);
+    pool.get(k).push(i);
+  }
+  const out = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const { text: t, checked } = parseLine(raw);
+    if (!t) continue;
+    const prev = pool.get(lineKey(t))?.shift();
+    if (prev) {
+      out.push({ ...prev, text: t, checked, checkedAt: checked ? prev.checkedAt || new Date().toISOString() : null });
+    } else {
+      out.push(newItem(t, checked));
+    }
+  }
+  return out;
+}
+
+// Add pasted lines to a list.
+//   afterId:   insert new items after this item (end of list when null)
+//   replaceId: an empty item to replace (pasting into a blank row)
+//   matchKey:  smarter duplicate key ("eggs" ≈ "egg"); quantities are ignored
+// Lines already on the list are not added again; they take the pasted check
+// state instead (normally unchecked — "need it again").
+export function mergePaste({ items, pasted, afterId = null, replaceId = null, matchKey = lineKey }) {
   const safeMatch = (t) => {
-    if (isHeader(t)) return lineKey(t);
     const name = stripQty(t);
     try { return matchKey(name) || lineKey(name); } catch { return lineKey(name); }
   };
 
-  const existing = new Map(); // match key -> line keys of existing lines
-  for (const line of `${before}\n${after}`.split('\n')) {
-    const key = lineKey(line);
-    if (!key) continue;
-    const mk = safeMatch(parseLine(line).text);
+  const existing = new Map(); // match key -> ids
+  for (const i of items) {
+    if (i.id === replaceId || !hasText(i)) continue;
+    const mk = safeMatch(i.text);
     if (!existing.has(mk)) existing.set(mk, []);
-    existing.get(mk).push(key);
+    existing.get(mk).push(i.id);
   }
 
-  const out = [];
+  const now = new Date().toISOString();
+  const setChecked = new Map(); // id -> checked
+  const fresh = [];
   const seen = new Set();
-  let added = 0, skipped = 0, unchecked = 0;
+  let skipped = 0, unchecked = 0;
   for (const raw of pasted.split(/\r?\n/)) {
-    const { text, checked: done } = parseLine(raw);
+    const { text, checked } = parseLine(raw);
     if (!text) continue;
     const mk = safeMatch(text);
     if (seen.has(mk)) continue;
     seen.add(mk);
     if (existing.has(mk)) {
       skipped++;
-      for (const key of existing.get(mk)) {
-        if (done) next.add(key);
-        else if (next.delete(key)) unchecked++;
-      }
-      continue;
+      for (const id of existing.get(mk)) setChecked.set(id, checked);
+    } else {
+      fresh.push(newItem(text, checked));
     }
-    out.push(text);
-    added++;
-    if (done) next.add(lineKey(text)); else next.delete(lineKey(text));
   }
 
-  let insert = out.join('\n');
-  if (insert) {
-    if (before && !before.endsWith('\n')) insert = '\n' + insert;
-    if (after && !after.startsWith('\n')) insert += '\n';
+  let next = items.map(i => {
+    if (!setChecked.has(i.id)) return i;
+    const checked = setChecked.get(i.id);
+    if (i.checked === checked) return i;
+    if (!checked) unchecked++;
+    return { ...i, checked, checkedAt: checked ? now : i.checkedAt };
+  });
+
+  const anchor = replaceId ?? afterId;
+  const at = anchor == null ? -1 : next.findIndex(i => i.id === anchor);
+  if (at === -1) {
+    next = [...next.filter(i => i.id !== replaceId), ...fresh];
+  } else {
+    next = [...next.slice(0, replaceId ? at : at + 1), ...fresh, ...next.slice(at + 1)];
   }
-  return { insert, checked: next, added, skipped, unchecked };
+  return { items: next, added: fresh, skipped, unchecked };
 }
 
-// ─── Old item-based format (v1) → notes ───────────────────────────────────────
+// ─── Older formats → items ────────────────────────────────────────────────────
+
+// v2 (notepad): { text, checked: [line keys] }
+export function textNoteToItems(text = '', checkedKeys = []) {
+  const checked = new Set(checkedKeys);
+  return text.split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => newItem(line, checked.has(lineKey(line))));
+}
 
 function itemLine(item) {
   const name = String(item.name || '').trim();
   return item.qty > 1 ? `${item.qty}x ${name}` : name;
 }
 
-// Lines appear in the order the old app showed them: the saved manual order
-// when present (items missing from it first, newest first), else newest first.
+// v1 (item-based): items in the order the old app showed them — the saved
+// manual order when present (items missing from it first, newest first), else
+// newest first. Categories carry over as-is.
 export function listToNote(list, items, manualOrder) {
   let ordered = items.slice().sort((a, b) => b.id - a.id);
   if (Array.isArray(manualOrder)) {
@@ -161,15 +224,22 @@ export function listToNote(list, items, manualOrder) {
       ...ordered.filter(i => pos.has(i.id)).sort((a, b) => pos.get(a.id) - pos.get(b.id)),
     ];
   }
-  const lines = ordered.map(itemLine).filter(Boolean);
-  const checked = [...new Set(ordered.filter(i => i.checked).map(i => lineKey(itemLine(i))).filter(Boolean))];
+  const now = new Date().toISOString();
   return {
     id: list.id,
     name: list.name || 'Shopping',
-    text: lines.join('\n'),
-    checked,
-    createdAt: list.createdAt || new Date().toISOString(),
-    updatedAt: list.updatedAt || list.createdAt || new Date().toISOString(),
+    items: ordered.filter(i => itemLine(i)).map(i => {
+      const text = itemLine(i);
+      // Keep real categories; 'other' was often just a miss, so let it be recomputed.
+      const cat = CATEGORIES.includes(i.category) && i.category !== 'other' ? i.category : null;
+      return newItem(text, !!i.checked, {
+        cat,
+        catKey: cat ? lineKey(text) : null,
+        checkedAt: i.checked ? i.lastCheckedAt || now : null,
+      });
+    }),
+    createdAt: list.createdAt || now,
+    updatedAt: list.updatedAt || list.createdAt || now,
   };
 }
 

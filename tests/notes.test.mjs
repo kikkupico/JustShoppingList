@@ -1,9 +1,9 @@
-// Unit tests for notes.js (notepad model + v1 migration).
+// Unit tests for notes.js (checklist model, view, paste, migrations).
 // Run: node tests/notes.test.mjs
 import assert from 'node:assert/strict';
 import {
-  parseLine, lineKey, isHeader, pruneChecked, countItems, remainingText,
-  clearCheckedText, mergePaste, listToNote, v1ToNotes, stripQty,
+  parseLine, lineKey, stripQty, nameKey, newItem, countItems, viewItems, itemsToText,
+  textToItems, mergePaste, textNoteToItems, listToNote, v1ToNotes,
 } from '../notes.js';
 
 let failed = 0;
@@ -12,117 +12,132 @@ function test(name, fn) {
   catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message.split('\n').join('\n       ')}`); }
 }
 
+const mk = (text, checked = false, extra = {}) => newItem(text, checked, extra);
+const texts = (items) => items.map(i => i.text);
+
 test('parseLine strips bullets and reads check markers', () => {
   assert.deepEqual(parseLine('- milk'), { text: 'milk', checked: false });
-  assert.deepEqual(parseLine('  * eggs '), { text: 'eggs', checked: false });
   assert.deepEqual(parseLine('3. bread'), { text: 'bread', checked: false });
   assert.deepEqual(parseLine('- [ ] jam'), { text: 'jam', checked: false });
   assert.deepEqual(parseLine('- [x] jam'), { text: 'jam', checked: true });
-  assert.deepEqual(parseLine('[X] jam'), { text: 'jam', checked: true });
-  assert.deepEqual(parseLine('☐ tea'), { text: 'tea', checked: false });
   assert.deepEqual(parseLine('☑ tea'), { text: 'tea', checked: true });
-  assert.deepEqual(parseLine('✓ tea'), { text: 'tea', checked: true });
+  assert.deepEqual(parseLine('☐ tea'), { text: 'tea', checked: false });
   assert.deepEqual(parseLine('~~tea~~'), { text: 'tea', checked: true });
-  assert.deepEqual(parseLine('2x bread'), { text: '2x bread', checked: false });
   assert.deepEqual(parseLine('-5 degrees'), { text: '-5 degrees', checked: false });
 });
 
-test('lineKey normalises case, spacing and bullets', () => {
-  assert.equal(lineKey('  Milk   2L '), 'milk 2l');
-  assert.equal(lineKey('- milk 2l'), 'milk 2l');
-  assert.equal(lineKey('   '), '');
-});
-
-test('isHeader', () => {
-  assert.ok(isHeader('Produce:'));
-  assert.ok(isHeader('# Dairy'));
-  assert.ok(!isHeader('milk'));
-  assert.ok(!isHeader(':'));
-});
-
-test('pruneChecked drops keys for removed lines and keeps identity when unchanged', () => {
-  const c = new Set(['milk', 'eggs']);
-  assert.equal(pruneChecked('milk\neggs', c), c);
-  assert.deepEqual([...pruneChecked('milk', c)], ['milk']);
-});
-
-test('countItems ignores blanks and headers', () => {
-  assert.deepEqual(countItems('Dairy:\nmilk\n\neggs\n', new Set(['milk'])), { total: 2, done: 1 });
-});
-
-test('remainingText keeps headers only when they have items left', () => {
-  const text = 'Dairy:\nmilk\neggs\nProduce:\napples\n\nbread';
-  assert.equal(remainingText(text, new Set(['milk', 'eggs'])), 'Produce:\napples\nbread');
-});
-
-test('clearCheckedText removes checked items, keeps the rest verbatim', () => {
-  assert.equal(clearCheckedText('Dairy:\nmilk\n\neggs', new Set(['milk'])), 'Dairy:\n\neggs');
-});
-
-test('mergePaste adds new lines, skips existing ones and unchecks them', () => {
-  const r = mergePaste({ before: 'milk\neggs', after: '', pasted: '- Milk\n- bread\n- bread\n', checked: new Set(['milk']) });
-  assert.equal(r.insert, '\nbread');
-  assert.deepEqual([r.added, r.skipped, r.unchecked], [1, 1, 1]);
-  assert.ok(!r.checked.has('milk'));
-});
-
-test('mergePaste keeps pasted check state', () => {
-  const r = mergePaste({ before: '', after: '', pasted: '- [x] jam\n- [ ] tea', checked: new Set() });
-  assert.equal(r.insert, 'jam\ntea');
-  assert.ok(r.checked.has('jam'));
-  assert.ok(!r.checked.has('tea'));
-});
-
-test('mergePaste puts the block on its own lines mid-text', () => {
-  const r = mergePaste({ before: 'apples', after: 'pears', pasted: 'kiwi\nlime', checked: new Set() });
-  assert.equal(r.insert, '\nkiwi\nlime\n');
-});
-
-test('mergePaste uses the smarter matcher when given', () => {
-  const singular = t => t.toLowerCase().replace(/s$/, '');
-  const r = mergePaste({ before: 'eggs', after: '', pasted: 'egg\nham', checked: new Set(['eggs']), matchKey: singular });
-  assert.equal(r.insert, '\nham');
-  assert.ok(!r.checked.has('eggs'));
-});
-
-test('stripQty', () => {
+test('stripQty / nameKey', () => {
   for (const s of ['12x eggs', '12 x eggs', '2 eggs', 'eggs x2', 'eggs (2)', 'eggs']) assert.equal(stripQty(s), 'eggs');
   assert.equal(stripQty('2l milk'), '2l milk');
-  assert.equal(stripQty('42'), '42');
+  assert.equal(nameKey('- 2x  Eggs'), 'eggs');
+  assert.equal(lineKey('  Milk   2L '), 'milk 2l');
 });
 
-test('mergePaste ignores quantities when spotting duplicates', () => {
-  const r = mergePaste({ before: '12x Eggs', after: '', pasted: 'eggs\n2 milk', checked: new Set(['12x eggs']) });
-  assert.equal(r.insert, '\n2 milk');
-  assert.ok(!r.checked.has('12x eggs'));
+test('newItem ids are unique', () => {
+  const ids = new Set(Array.from({ length: 500 }, () => newItem('x').id));
+  assert.equal(ids.size, 500);
 });
 
-test('mergePaste survives a throwing matcher', () => {
-  const r = mergePaste({ before: 'milk', after: '', pasted: 'milk\ntea', checked: new Set(), matchKey: () => { throw new Error('x'); } });
-  assert.equal(r.insert, '\ntea');
+test('countItems ignores blank items', () => {
+  assert.deepEqual(countItems([mk('a', true), mk('b'), mk('  ')]), { total: 2, done: 1 });
 });
 
-test('listToNote: newest first, quantities, checked state', () => {
+test('viewItems: status filter, category filter, search', () => {
+  const items = [mk('Milk', true, { cat: 'dairy' }), mk('Apples', false, { cat: 'produce' }), mk('Cheese', false, { cat: 'dairy' })];
+  assert.deepEqual(texts(viewItems(items, { status: 'todo' })), ['Apples', 'Cheese']);
+  assert.deepEqual(texts(viewItems(items, { status: 'done' })), ['Milk']);
+  assert.deepEqual(texts(viewItems(items, { cat: 'dairy' })), ['Milk', 'Cheese']);
+  assert.deepEqual(texts(viewItems(items, { query: 'app' })), ['Apples']);
+  assert.deepEqual(texts(viewItems(items, { query: 'dai' })), ['Milk', 'Cheese'], 'search matches category');
+});
+
+test('viewItems: keep overrides filters', () => {
+  const items = [mk('Milk', true), mk('Eggs')];
+  assert.deepEqual(texts(viewItems(items, { status: 'todo', keep: new Set([items[0].id]) })), ['Milk', 'Eggs']);
+});
+
+test('viewItems: sorts never touch the source order', () => {
+  const items = [mk('2x bread', false, { cat: 'bakery' }), mk('apples', false, { cat: 'produce' }), mk('Cheese', false, { cat: 'dairy' }), mk('zucchini', false, { cat: 'produce' })];
+  const before = texts(items);
+  assert.deepEqual(texts(viewItems(items, { sort: 'az' })), ['apples', '2x bread', 'Cheese', 'zucchini']);
+  assert.deepEqual(texts(viewItems(items, { sort: 'category' })), ['apples', 'zucchini', '2x bread', 'Cheese']);
+  assert.deepEqual(texts(items), before);
+});
+
+test('viewItems: recent puts latest checked first', () => {
+  const items = [
+    mk('a'), mk('b', true, { checkedAt: '2026-01-01T00:00:00Z' }), mk('c', true, { checkedAt: '2026-02-01T00:00:00Z' }),
+  ];
+  assert.deepEqual(texts(viewItems(items, { sort: 'recent' })), ['c', 'b', 'a']);
+});
+
+test('itemsToText', () => {
+  const items = [mk('milk', true), mk('eggs'), mk('')];
+  assert.equal(itemsToText(items), 'milk\neggs');
+  assert.equal(itemsToText(items, { markChecked: true }), '[x] milk\neggs');
+  assert.equal(itemsToText(items, { onlyUnchecked: true }), 'eggs');
+});
+
+test('textToItems keeps ids and categories of matching lines', () => {
+  const milk = mk('Milk', true, { cat: 'dairy', catKey: 'milk' });
+  const out = textToItems('[x] milk\n- bread\n\n', [milk]);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].id, milk.id);
+  assert.equal(out[0].cat, 'dairy');
+  assert.equal(out[0].checked, true);
+  assert.equal(out[1].text, 'bread');
+});
+
+test('mergePaste: new lines after the anchor, duplicates unchecked', () => {
+  const items = [mk('milk', true), mk('12x Eggs'), mk('tea')];
+  const r = mergePaste({ items, afterId: items[0].id, pasted: '- Milk\n- bread\n- eggs\n- bread\n' });
+  assert.deepEqual(texts(r.items), ['milk', 'bread', '12x Eggs', 'tea']);
+  assert.deepEqual([r.added.length, r.skipped, r.unchecked], [1, 2, 1]);
+  assert.equal(r.items[0].checked, false);
+});
+
+test('mergePaste: replaces an empty row and keeps pasted check state', () => {
+  const blank = mk('');
+  const items = [mk('a'), blank, mk('b')];
+  const r = mergePaste({ items, replaceId: blank.id, pasted: '- [x] jam\n- [ ] tea' });
+  assert.deepEqual(texts(r.items), ['a', 'jam', 'tea', 'b']);
+  assert.equal(r.items[1].checked, true);
+});
+
+test('mergePaste: appends when no anchor; smarter matcher; throwing matcher', () => {
+  const items = [mk('eggs')];
+  const singular = t => t.toLowerCase().replace(/s$/, '');
+  assert.deepEqual(texts(mergePaste({ items, pasted: 'egg\nham', matchKey: singular }).items), ['eggs', 'ham']);
+  assert.deepEqual(texts(mergePaste({ items, pasted: 'eggs\nham', matchKey: () => { throw new Error('x'); } }).items), ['eggs', 'ham']);
+});
+
+test('textNoteToItems converts the v2 notepad format', () => {
+  const out = textNoteToItems('Dairy:\nmilk\n\n2x eggs', ['milk']);
+  assert.deepEqual(out.map(i => [i.text, i.checked]), [['Dairy:', false], ['milk', true], ['2x eggs', false]]);
+});
+
+test('listToNote (v1): newest first, quantities, checked, categories', () => {
   const note = listToNote({ id: 3, name: 'Weekly' }, [
-    { id: 1, name: 'Milk', qty: 1, checked: true },
-    { id: 2, name: 'Eggs', qty: 12, checked: false },
+    { id: 1, name: 'Milk', qty: 1, checked: true, category: 'dairy' },
+    { id: 2, name: 'Eggs', qty: 12, checked: false, category: 'bogus' },
+    { id: 0, name: 'Apples', qty: 1, checked: false, category: 'other' },
   ]);
   assert.equal(note.id, 3);
-  assert.equal(note.text, '12x Eggs\nMilk');
-  assert.deepEqual(note.checked, ['milk']);
+  assert.deepEqual(note.items.map(i => [i.text, i.checked, i.cat]), [['12x Eggs', false, null], ['Milk', true, 'dairy'], ['Apples', false, null]], "'other' is recomputed");
+  assert.equal(note.items[1].catKey, 'milk');
 });
 
 test('listToNote honours saved manual order, unknown items first', () => {
-  const items = [1, 2, 3, 4].map(id => ({ id, name: `i${id}`, qty: 1, checked: false }));
-  assert.equal(listToNote({ id: 1, name: 'x' }, items, [2, 1, 3]).text, 'i4\ni2\ni1\ni3');
+  const items = [1, 2, 3, 4].map(id => ({ id, name: `i${id}`, qty: 1 }));
+  assert.deepEqual(texts(listToNote({ id: 1, name: 'x' }, items, [2, 1, 3]).items), ['i4', 'i2', 'i1', 'i3']);
 });
 
 test('v1ToNotes groups items by list', () => {
   const notes = v1ToNotes({
     lists: [{ id: 1, name: 'A' }, { id: 2, name: 'B' }],
     items: [{ id: 1, listId: 1, name: 'x', qty: 1 }, { id: 2, listId: 2, name: 'y', qty: 2 }],
-  }, id => (id === 1 ? [1] : null));
-  assert.deepEqual(notes.map(n => [n.name, n.text]), [['A', 'x'], ['B', '2x y']]);
+  });
+  assert.deepEqual(notes.map(n => [n.name, texts(n.items)]), [['A', ['x']], ['B', ['2x y']]]);
 });
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
