@@ -2,14 +2,22 @@
 
 A privacy-first, AI-free shopping list web app that runs entirely in your browser — no backend, no accounts, no data ever leaves your device.
 
+## How it works
+
+Each list is a plain-text note, one item per line. Type, edit and copy/paste it like any notepad.
+
+- Tap the circle beside a line to check it off (the keyboard stays closed).
+- Pasting a list cleans up bullets and `- [ ]` / `- [x]` checkboxes, skips items already on the list and unchecks them so they're "needed again".
+- Lines ending in `:` or starting with `#` are section labels, not items.
+- The ⋯ menu has Copy list, Copy what's left, Share, Scan a receipt, Uncheck all and Remove checked (with Undo).
+
 ## Privacy Guarantee
 
 - No servers — the app is a static file bundle
 - No accounts or sign-in required
 - No analytics, cookies, or tracking of any kind
 - No AI / LLM calls — receipt parsing is fully deterministic and runs locally
-- All lists and items are stored in IndexedDB on your device only
-- Shared links are fully self-contained (data encoded in the URL itself)
+- All lists are stored in localStorage on your device only
 
 ## Deploy on GitHub Pages
 
@@ -38,6 +46,11 @@ python3 -m http.server 8080
 Then open `http://localhost:8080`.
 
 ## Tests
+
+**Notepad logic** — paste merging, checked state, migration from the old item format:
+```sh
+node tests/notes.test.mjs
+```
 
 **Regression tests** — unit tests against realistic synthetic receipts:
 ```sh
