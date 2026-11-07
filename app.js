@@ -7,7 +7,7 @@ import {
 } from './db.js';
 import {
   CATEGORIES, parseLine, lineKey, nameKey, stripQty, newItem, hasText, countItems,
-  viewItems, itemsToText, textToItems, mergePaste,
+  viewItems, itemsToText, reconcile, planPaste, applyChecks, mergePaste,
 } from './notes.js';
 
 const html = htm.bind(h);
@@ -91,7 +91,7 @@ async function copyText(text, label) {
     await navigator.clipboard.writeText(text);
     toast(label);
   } catch {
-    toast('Could not copy — try “Edit as text” and copy from there.');
+    toast('Could not copy — select the text and copy it instead.');
   }
 }
 
@@ -104,12 +104,18 @@ function downloadJSON(data, filename) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-function readPrefs(key, fallback) {
-  try { return { ...fallback, ...JSON.parse(localStorage.getItem(key) || '{}') }; } catch { return fallback; }
-}
-
-function writePrefs(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+// Insert text at the textarea's selection, keeping the browser's own undo
+// history (Cmd/Ctrl+Z) intact. Falls back to setRangeText where execCommand
+// is unavailable.
+function insertAtCursor(ta, text) {
+  ta.focus();
+  const ok = text
+    ? document.execCommand('insertText', false, text)
+    : document.execCommand('delete');
+  if (!ok) {
+    ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, 'end');
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
 }
 
 // Old share links (?list=…) are deflated JSON: { name, items: [{name, qty, checked}] }.
@@ -121,13 +127,6 @@ async function decodeShareLink(encoded) {
   writer.write(bytes);
   writer.close();
   return JSON.parse(await new Response(ds.readable).text());
-}
-
-// Insert `ids` into an id order after `anchor` (or in its place when `replace`).
-function spliceIds(order, anchor, ids, replace = false) {
-  const at = order.indexOf(anchor);
-  if (at === -1) return [...order.filter(id => id !== anchor), ...ids];
-  return [...order.slice(0, replace ? at : at + 1), ...ids, ...order.slice(at + 1)];
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -310,95 +309,97 @@ function ScanModal({ onClose, onLines }) {
   `;
 }
 
-// ─── Checklist row ────────────────────────────────────────────────────────────
+// ─── Category picker ──────────────────────────────────────────────────────────
+// One floating menu for the whole list, placed under the chip that opened it.
 
-function CatChip({ cat, onPick }) {
-  const [open, setOpen] = useState(false);
+function CatPicker({ picker, onPick, onClose }) {
   const ref = useRef(null);
-  useClickOutside(ref, open, () => setOpen(false));
-  const shown = cat || 'other';
+  useClickOutside(ref, true, onClose);
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener('scroll', close, { passive: true });
+    window.addEventListener('resize', close);
+    return () => { window.removeEventListener('scroll', close); window.removeEventListener('resize', close); };
+  }, []);
+  const { rect, cat } = picker;
+  const below = rect.bottom + 340 < window.innerHeight;
+  const style = `right:${Math.max(8, window.innerWidth - rect.right)}px;`
+    + (below ? `top:${rect.bottom + 4}px` : `bottom:${window.innerHeight - rect.top + 4}px`);
   return html`
-    <div class="cat-wrap" ref=${ref}>
-      <button class="cat-chip cat-${shown} ${cat ? '' : 'unknown'}" tabIndex="-1"
-        title="Change category" aria-label=${`Category: ${shown}. Change`}
-        onPointerDown=${e => e.preventDefault()} onMouseDown=${e => e.preventDefault()}
-        onClick=${() => setOpen(v => !v)}>${shown}</button>
-      ${open && html`
-        <div class="menu cat-menu" role="menu">
-          ${CATEGORIES.map(c => html`
-            <button role="menuitem" class=${c === cat ? 'active' : ''}
-              onPointerDown=${e => e.preventDefault()} onMouseDown=${e => e.preventDefault()}
-              onClick=${() => { setOpen(false); onPick(c); }}>
-              <span class="dot cat-${c}"></span>${capital(c)}
-            </button>
-          `)}
-        </div>
-      `}
+    <div class="menu cat-menu" role="menu" ref=${ref} style=${style}>
+      ${CATEGORIES.map(c => html`
+        <button role="menuitem" class=${c === cat ? 'active' : ''}
+          onPointerDown=${e => e.preventDefault()} onMouseDown=${e => e.preventDefault()}
+          onClick=${() => onPick(c)}>
+          <span class="dot cat-${c}"></span>${capital(c)}
+        </button>
+      `)}
     </div>
   `;
 }
 
-function Row({ item, placeholder, setRef, onToggle, onInput, onKeyDown, onPaste, onFocus, onPickCat }) {
-  const filled = hasText(item);
+function CatChip({ item, onOpen, stop = false }) {
+  const shown = item.cat || 'other';
   return html`
-    <li class="row ${item.checked ? 'done' : ''}">
-      <button class="tick" tabIndex="-1" disabled=${!filled}
-        aria-label=${item.checked ? `Uncheck ${item.text}` : `Check ${item.text}`}
-        aria-pressed=${item.checked}
-        onPointerDown=${e => e.preventDefault()} onMouseDown=${e => e.preventDefault()}
-        onClick=${() => onToggle(item.id)}><span></span></button>
-      <div class="grow" data-value=${item.text}>
-        <textarea rows="1" ref=${el => setRef(item.id, el)} value=${item.text}
-          placeholder=${placeholder} aria-label="Item" enterkeyhint="next"
-          autocapitalize="sentences" spellcheck="true"
-          onInput=${e => onInput(item, e)}
-          onKeyDown=${e => onKeyDown(item, e)}
-          onPaste=${e => onPaste(item, e)}
-          onFocus=${() => onFocus(item)}></textarea>
-      </div>
-      ${filled && html`<${CatChip} cat=${item.cat} onPick=${c => onPickCat(item, c)}/>`}
-    </li>
+    <button class="cat-chip cat-${shown} ${item.cat ? '' : 'unknown'}" tabIndex="-1"
+      title=${`Category: ${shown}`} aria-label=${`Category: ${shown}. Change`}
+      onPointerDown=${e => e.preventDefault()} onMouseDown=${e => e.preventDefault()}
+      onClick=${e => { if (stop) e.stopPropagation(); onOpen(item, e.currentTarget); }}>
+      <span class="dot"></span><span class="cat-label">${shown}</span>
+    </button>
   `;
 }
 
 // ─── List view ────────────────────────────────────────────────────────────────
+// The editor is one plain <textarea>, so selecting, copying, pasting, undo and
+// keyboard shortcuts work like any text editor. A mirror layer on top renders
+// the same text invisibly with identical wrapping; it supplies the check
+// circles (left margin) and category chips (right margin), and fades + strikes
+// checked lines. Each line is an item; reconcile() maps edits back to items.
+//
+// Search, filters and sort hide or reorder lines, which a text editor can't
+// do, so they switch to a shopping view: tap an item to check it off.
 
 const SORTS = { mine: 'My order', az: 'A–Z', category: 'Category', recent: 'Recently checked' };
 const STATUSES = { all: 'All', todo: 'To buy', done: 'Done' };
+const linesOf = (items) => items.map(i => i.text);
 
 function NoteView({ noteId, onBack }) {
   const initial = useRef(getNote(noteId)).current;
-  const startEmpty = !initial?.items?.length;
+  const startEmpty = !initial?.items?.some(hasText);
   const [name, setName] = useState(initial?.name || todayName());
-  const [items, setItemsState] = useState(() => (startEmpty ? [newItem()] : initial.items));
+  // One item per line, always (an item holding a newline would break that).
+  const [items, setItemsState] = useState(() => {
+    const base = initial?.items || [];
+    return reconcile(base, linesOf(base).join('\n').split('\n')).items;
+  });
   const itemsRef = useRef(items);
-  const prefsKey = `jsl_view_${noteId}`;
-  const [prefs, setPrefs] = useState(() => readPrefs(prefsKey, { sort: 'mine', status: 'all' }));
   const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('all');
   const [cat, setCat] = useState(null);
+  const [sort, setSort] = useState('mine');
   const [keep, setKeep] = useState(() => new Set());
-  // While a row is being edited the visible order is frozen, so rows don't
-  // jump around under the cursor as text, category or check state change.
-  const [frozen, setFrozenState] = useState(null);
-  const frozenRef = useRef(null);
-  const [textMode, setTextMode] = useState(null); // string while editing as text
+  const [picker, setPicker] = useState(null); // { id, cat, rect }
   const [showScan, setShowScan] = useState(false);
-  const rowRefs = useRef(new Map());
-  const pendingFocus = useRef(startEmpty ? { id: items[0].id, pos: 0 } : null);
-  const listRef = useRef(null);
+  const taRef = useRef(null);
+  const graveyard = useRef(new Map()); // text -> recently removed item
+  const pendingChecked = useRef(null);
+  const lastCopied = useRef(null);
   const parserReady = useParserReady();
+  const editing = sort === 'mine' && status === 'all' && !cat && !query.trim();
 
   const setItems = (next) => {
     const value = typeof next === 'function' ? next(itemsRef.current) : next;
     itemsRef.current = value;
     setItemsState(value);
   };
-  const setFrozen = (next) => {
-    const value = typeof next === 'function' ? next(frozenRef.current) : next;
-    frozenRef.current = value;
-    setFrozenState(value);
+
+  // Programmatic edits go through here so the textarea stays in step. (This
+  // resets the browser's own undo history; callers offer an Undo toast.)
+  const replaceItems = (next) => {
+    setItems(next);
+    if (taRef.current) taRef.current.value = linesOf(next).join('\n');
   };
-  const setPref = (k, v) => setPrefs(p => { const n = { ...p, [k]: v }; writePrefs(prefsKey, n); return n; });
 
   // Save every change straight away (see db.js).
   const first = useRef(true);
@@ -407,8 +408,18 @@ function NoteView({ noteId, onBack }) {
     saveNote(noteId, { name, items });
   }, [name, items]);
 
+  // Uncontrolled textarea: fill it when the editor (re)appears.
+  const focusedOnce = useRef(false);
+  useLayoutEffect(() => {
+    const ta = taRef.current;
+    if (!editing || !ta) return;
+    ta.value = linesOf(itemsRef.current).join('\n');
+    if (startEmpty && !focusedOnce.current) { focusedOnce.current = true; ta.focus(); }
+  }, [editing]);
+
   // Work out categories for items whose text changed, a moment after typing
-  // stops. A category picked by hand for that name wins.
+  // stops. A category picked by hand for that name wins. Only metadata
+  // changes, so the textarea (and its caret) is untouched.
   useEffect(() => {
     const t = setTimeout(() => {
       const memory = getCatMemory();
@@ -428,200 +439,127 @@ function NoteView({ noteId, onBack }) {
     return () => clearTimeout(t);
   }, [items, parserReady]);
 
-  // Paste anywhere on the page (nothing focused) adds to the end of the list.
+  // Paste with nothing focused adds to the end of the list.
   useEffect(() => {
     const onDocPaste = (e) => {
-      if (textMode !== null || e.target.closest?.('input, textarea, [contenteditable]')) return;
+      if (e.target.closest?.('input, textarea, [contenteditable]')) return;
       const pasted = e.clipboardData?.getData('text/plain') || '';
       if (!pasted.trim()) return;
       e.preventDefault();
-      applyPaste(pasted, {});
+      appendLines(pasted);
     };
     document.addEventListener('paste', onDocPaste);
     return () => document.removeEventListener('paste', onDocPaste);
-  }, [textMode]);
+  }, []);
 
-  // Focus the row an action asked for, once it has rendered.
-  useLayoutEffect(() => {
-    const p = pendingFocus.current;
-    if (!p) return;
-    const el = rowRefs.current.get(p.id);
-    if (!el) return;
-    pendingFocus.current = null;
-    el.focus();
-    const pos = p.pos === 'end' ? el.value.length : p.pos;
-    el.setSelectionRange(pos, pos);
-  });
-
-  const focusLater = (id, pos = 'end') => { if (id) pendingFocus.current = { id, pos }; };
-  const focusNow = (id, pos) => {
-    const el = rowRefs.current.get(id);
-    if (!el) return;
-    el.focus();
-    const at = pos === 'end' ? el.value.length : pos;
-    el.setSelectionRange(at, at);
-  };
-  const setRef = (id, el) => { if (el) rowRefs.current.set(id, el); else rowRefs.current.delete(id); };
-
-  const computed = viewItems(items, { query, status: prefs.status, cat, sort: prefs.sort, keep });
-  const byId = new Map(items.map(i => [i.id, i]));
-  const visible = frozen ? frozen.map(id => byId.get(id)).filter(Boolean) : computed;
-
-  const freeze = () => { if (!frozenRef.current) setFrozen(computed.map(i => i.id)); };
-
-  function onListFocusOut(e) {
-    if (e.relatedTarget && listRef.current?.contains(e.relatedTarget)) return;
-    setTimeout(() => {
-      if (listRef.current?.contains(document.activeElement)) return;
-      setFrozen(null);
-      setItems(prev => (prev.some(i => !hasText(i)) ? prev.filter(hasText) : prev));
-    }, 0);
-  }
-
-  // Snapshot-based undo for actions that change many items at once.
-  function withUndo(msg, change) {
+  function withUndo(msg, next) {
     const before = itemsRef.current;
-    change();
-    toast(msg, { label: 'Undo', fn: () => { setFrozen(null); setItems(before); } });
+    replaceItems(next);
+    toast(msg, { label: 'Undo', fn: () => replaceItems(before) });
   }
 
-  function applyPaste(pasted, where) {
-    const r = mergePaste({ items: itemsRef.current, pasted, matchKey, ...where });
+  function appendLines(text) {
+    const r = mergePaste({ items: itemsRef.current, pasted: text, matchKey });
     if (!r.added.length && !r.skipped) return;
     const parts = [`Added ${plural(r.added.length, 'item')}`];
     if (r.skipped) parts.push(`${r.skipped} already on list` + (r.unchecked ? ` (${r.unchecked} unchecked)` : ''));
-    withUndo(parts.join(' · '), () => {
-      const ids = r.added.map(i => i.id);
-      const anchor = where.replaceId ?? where.afterId;
-      setFrozen(f => (f ? spliceIds(f, anchor, ids, !!where.replaceId) : f));
-      setItems(r.items);
-      if (where.replaceId && !ids.length) setFrozen(f => (f ? f.filter(id => id !== where.replaceId) : f));
-      if (anchor != null && ids.length) focusLater(ids[ids.length - 1]);
-    });
+    withUndo(parts.join(' · '), r.items);
   }
+
+  // ── Editor events ──
+
+  function onInput(e) {
+    const type = e.inputType || '';
+    const revive = /^(history|insertFromPaste|insertFromDrop)/.test(type) ? graveyard.current : null;
+    const r = reconcile(itemsRef.current, e.target.value.split('\n'), { revive, markChecked: pendingChecked.current });
+    pendingChecked.current = null;
+    const g = graveyard.current;
+    if (revive) for (const it of r.items) if (g.get(it.text)?.id === it.id) g.delete(it.text);
+    for (const it of r.removed) {
+      if (!hasText(it)) continue;
+      g.delete(it.text);
+      g.set(it.text, it);
+    }
+    while (g.size > 200) g.delete(g.keys().next().value);
+    setItems(r.items);
+  }
+
+  function rememberCopy(e) {
+    const ta = e.target;
+    lastCopied.current = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+  }
+
+  function onPaste(e) {
+    const pasted = (e.clipboardData?.getData('text/plain') || '').replace(/\r\n?/g, '\n');
+    // Lines copied or cut from this list paste as-is, like any text editor
+    // (a moved checked line stays checked). Only text from elsewhere is tidied.
+    if (pasted === lastCopied.current || !pasted.includes('\n')) return;
+    e.preventDefault();
+    const ta = taRef.current;
+    const v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
+    const startLine = v.slice(0, s).split('\n').length - 1;
+    const endLine = startLine + v.slice(s, en).split('\n').length - 1;
+    const exclude = s !== en ? new Set(itemsRef.current.slice(startLine, endLine + 1).map(i => i.id)) : null;
+    const plan = planPaste({ items: itemsRef.current, pasted, exclude, matchKey });
+    const { items: next, unchecked } = applyChecks(itemsRef.current, plan.setChecked);
+    setItems(next);
+    const before = v.slice(0, s), after = v.slice(en);
+    let insert = plan.lines.join('\n');
+    if (insert) {
+      if (before && !before.endsWith('\n')) insert = '\n' + insert;
+      if (after && !after.startsWith('\n')) insert += '\n';
+    }
+    pendingChecked.current = plan.newChecked;
+    if (insert || s !== en) insertAtCursor(ta, insert);
+    if (plan.skipped) {
+      const parts = [plan.lines.length && `Added ${plural(plan.lines.length, 'item')}`, `${plan.skipped} already on list`].filter(Boolean);
+      toast(parts.join(' · ') + (unchecked ? ` (${unchecked} unchecked)` : ''));
+    }
+  }
+
+  // ── Item actions ──
 
   function toggle(id) {
     const now = new Date().toISOString();
     vibrate(10);
     setItems(prev => prev.map(i => (i.id === id ? { ...i, checked: !i.checked, checkedAt: i.checked ? i.checkedAt : now } : i)));
-    // Keep it on screen briefly even if a filter now hides it.
+    // In a filtered view, keep it on screen briefly so it doesn't vanish under your finger.
     setKeep(k => new Set(k).add(id));
     setTimeout(() => setKeep(k => { const n = new Set(k); n.delete(id); return n; }), 1200);
   }
 
-  // Split the item at [start, end): text before stays, text after becomes a new
-  // item below it.
-  function splitAt(item, value, start, end) {
-    const head = value.slice(0, start).replace(/\s+$/, '');
-    const tail = value.slice(end).replace(/^\s+/, '');
-    const fresh = newItem(tail);
-    setItems(prev => {
-      const at = prev.findIndex(i => i.id === item.id);
-      const next = prev.slice();
-      next[at] = { ...next[at], text: head };
-      next.splice(at + 1, 0, fresh);
-      return next;
-    });
-    setFrozen(f => (f ? spliceIds(f, item.id, [fresh.id]) : f));
-    focusLater(fresh.id, 0);
+  function openPicker(item, el) {
+    setPicker(p => (p?.id === item.id ? null : { id: item.id, cat: item.cat, rect: el.getBoundingClientRect() }));
   }
 
-  function removeItem(id) {
-    setItems(prev => prev.filter(i => i.id !== id));
-    setFrozen(f => (f ? f.filter(x => x !== id) : f));
-  }
-
-  function onRowInput(item, e) {
-    const value = e.target.value;
-    // Some mobile keyboards insert a newline without an Enter keydown.
-    const nl = value.indexOf('\n');
-    if (nl !== -1) { splitAt(item, value.replace(/\n/g, ' '), nl, nl + 1); return; }
-    setItems(prev => prev.map(i => (i.id === item.id ? { ...i, text: value } : i)));
-  }
-
-  function onRowKeyDown(item, e) {
-    if (e.isComposing || e.keyCode === 229) return;
-    const ta = e.target;
-    const { selectionStart: s, selectionEnd: en, value } = ta;
-    const idx = visible.findIndex(i => i.id === item.id);
-    const prev = visible[idx - 1], next = visible[idx + 1];
-
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (!value.trim()) { ta.blur(); return; } // Enter on a blank row: done
-      splitAt(item, value, s, en);
-    } else if (e.key === 'Backspace' && s === 0 && en === 0) {
-      if (!value) {
-        e.preventDefault();
-        removeItem(item.id);
-        focusLater((prev || next)?.id, prev ? 'end' : 0);
-      } else if (prev) {
-        // Join with the row above, like a text editor.
-        e.preventDefault();
-        setItems(list => list
-          .map(i => (i.id === prev.id ? { ...i, text: i.text + value } : i))
-          .filter(i => i.id !== item.id));
-        setFrozen(f => (f ? f.filter(x => x !== item.id) : f));
-        focusLater(prev.id, prev.text.length);
-      }
-    } else if (e.key === 'ArrowUp' && s === 0 && en === 0 && prev) {
-      e.preventDefault();
-      focusNow(prev.id, 'end');
-    } else if (e.key === 'ArrowDown' && s === value.length && en === value.length && next) {
-      e.preventDefault();
-      focusNow(next.id, 0);
-    } else if (e.key === 'Escape') {
-      ta.blur();
-    }
-  }
-
-  function onRowPaste(item, e) {
-    const pasted = e.clipboardData?.getData('text/plain') || '';
-    if (!pasted.includes('\n')) return; // one line: normal paste into this item
-    e.preventDefault();
-    applyPaste(pasted, hasText(item) ? { afterId: item.id } : { replaceId: item.id });
-  }
-
-  function pickCat(item, c) {
+  function pickCat(c) {
+    const item = itemsRef.current.find(i => i.id === picker.id);
+    setPicker(null);
+    if (!item) return;
     const nk = nameKey(item.text);
     rememberCat(nk, c);
     setItems(prev => prev.map(i => (nameKey(i.text) === nk ? { ...i, cat: c, catKey: lineKey(i.text) } : i)));
   }
 
-  function addItem() {
-    const fresh = newItem();
-    setFrozen([...visible.map(i => i.id), fresh.id]);
-    setItems(prev => [...prev.filter(hasText), fresh]);
-    focusLater(fresh.id, 0);
-  }
-
-  function openTextMode() {
-    setFrozen(null);
-    setTextMode(itemsToText(itemsRef.current, { markChecked: true }));
-  }
-
-  function applyTextMode() {
-    const next = textToItems(textMode, itemsRef.current);
-    setTextMode(null);
-    withUndo('List updated from text', () => setItems(next));
+  function showAll() {
+    setQuery(''); setCat(null); setStatus('all'); setSort('mine');
   }
 
   const { total, done } = countItems(items);
   const left = total - done;
   const filled = items.filter(hasText);
   const presentCats = CATEGORIES.filter(c => filled.some(i => (i.cat || 'other') === c));
-  const filtering = query.trim() || cat || prefs.status !== 'all';
+  const visible = editing ? null : viewItems(items, { query, status, cat, sort, keep });
 
   const menu = [
     { label: 'Copy list', fn: () => copyText(itemsToText(itemsRef.current), 'List copied') },
     { label: 'Copy what’s left', fn: () => copyText(itemsToText(itemsRef.current, { onlyUnchecked: true }), `Copied ${plural(left, 'item')}`) },
     typeof navigator.share === 'function' && { label: 'Share…', fn: () => navigator.share({ title: name, text: itemsToText(itemsRef.current) }).catch(() => {}) },
-    { label: 'Edit as text', fn: openTextMode },
     '-',
     { label: 'Scan a receipt', fn: () => setShowScan(true) },
     '-',
-    { label: 'Uncheck all', fn: () => done && withUndo(`Unchecked ${plural(done, 'item')}`, () => setItems(prev => prev.map(i => (i.checked ? { ...i, checked: false } : i)))) },
-    { label: 'Remove checked', fn: () => done && withUndo(`Removed ${plural(done, 'item')}`, () => setItems(prev => prev.filter(i => !i.checked))) },
+    { label: 'Uncheck all', fn: () => done && withUndo(`Unchecked ${plural(done, 'item')}`, itemsRef.current.map(i => (i.checked ? { ...i, checked: false } : i))) },
+    { label: 'Remove checked', fn: () => done && withUndo(`Removed ${plural(done, 'item')}`, itemsRef.current.filter(i => !(i.checked && hasText(i)))) },
   ];
 
   let lastGroup = null;
@@ -642,85 +580,98 @@ function NoteView({ noteId, onBack }) {
       </header>
       <div class="progress" aria-hidden="true"><div style=${`width:${total ? (done / total) * 100 : 0}%`}></div></div>
 
-      ${textMode !== null ? html`
-        <main class="paper text-mode">
-          <p class="hint">One item per line. Lines starting with <code>[x]</code> are checked.</p>
-          <div class="grow grow-text" data-value=${textMode}>
-            <textarea value=${textMode} aria-label="List as text" autofocus
-              onInput=${e => setTextMode(e.target.value)}></textarea>
-          </div>
-          <div class="dialog-actions">
-            <button class="btn" onClick=${() => setTextMode(null)}>Cancel</button>
-            <button class="btn btn-primary" onClick=${applyTextMode}>Done</button>
+      <div class="tools">
+        <div class="tools-row">
+          <label class="search">
+            <${IconSearch}/>
+            <input type="search" placeholder="Search" value=${query} aria-label="Search items"
+              onInput=${e => setQuery(e.target.value)}
+              onKeyDown=${e => e.key === 'Escape' && setQuery('')} />
+            ${query && html`<button class="clear" onClick=${() => setQuery('')} aria-label="Clear search"><${IconX}/></button>`}
+          </label>
+          <label class="sort ${sort !== 'mine' ? 'active' : ''}">
+            <${IconSort}/>
+            <select value=${sort} aria-label="Sort" onChange=${e => setSort(e.target.value)}>
+              ${Object.entries(SORTS).map(([k, v]) => html`<option value=${k}>${v}</option>`)}
+            </select>
+          </label>
+        </div>
+        <div class="chips" role="toolbar" aria-label="Filters">
+          ${Object.entries(STATUSES).map(([k, v]) => html`
+            <button class="chip ${status === k ? 'on' : ''}" aria-pressed=${status === k} onClick=${() => setStatus(k)}>
+              ${v}${k === 'todo' ? ` ${left}` : k === 'done' ? ` ${done}` : ''}
+            </button>
+          `)}
+          ${presentCats.length > 1 && html`<span class="chip-sep"></span>`}
+          ${presentCats.length > 1 && presentCats.map(c => html`
+            <button class="chip ${cat === c ? 'on' : ''}" aria-pressed=${cat === c} onClick=${() => setCat(cat === c ? null : c)}>
+              <span class="dot cat-${c}"></span>${capital(c)}
+            </button>
+          `)}
+        </div>
+      </div>
+
+      ${editing ? html`
+        <main class="paper">
+          <div class="sheet">
+            <textarea ref=${taRef} class="sheet-text" aria-label="List — one item per line"
+              spellcheck="true" autocapitalize="sentences"
+              placeholder=${'milk\neggs\n2x bread\n\nType or paste a list — one item per line.'}
+              onInput=${onInput} onPaste=${onPaste} onCopy=${rememberCopy} onCut=${rememberCopy}></textarea>
+            <div class="sheet-mirror">
+              ${items.map(item => {
+                const filledLine = hasText(item);
+                return html`
+                  <div key=${item.id} class="ln ${filledLine && item.checked ? 'done' : ''}">
+                    ${filledLine && html`
+                      <button class="tick" tabIndex="-1" aria-pressed=${item.checked}
+                        aria-label=${item.checked ? `Uncheck ${item.text}` : `Check ${item.text}`}
+                        onPointerDown=${e => e.preventDefault()} onMouseDown=${e => e.preventDefault()}
+                        onClick=${() => toggle(item.id)}><span></span></button>
+                    `}
+                    <span class="ln-text" aria-hidden="true">${item.text || ' '}</span>
+                    ${filledLine && html`<${CatChip} item=${item} onOpen=${openPicker}/>`}
+                  </div>
+                `;
+              })}
+            </div>
           </div>
         </main>
       ` : html`
-        <div class="tools">
-          <div class="tools-row">
-            <label class="search">
-              <${IconSearch}/>
-              <input type="search" placeholder="Search" value=${query} aria-label="Search items"
-                onInput=${e => setQuery(e.target.value)}
-                onKeyDown=${e => e.key === 'Escape' && setQuery('')} />
-              ${query && html`<button class="clear" onClick=${() => setQuery('')} aria-label="Clear search"><${IconX}/></button>`}
-            </label>
-            <label class="sort ${prefs.sort !== 'mine' ? 'active' : ''}">
-              <${IconSort}/>
-              <select value=${prefs.sort} aria-label="Sort" onChange=${e => setPref('sort', e.target.value)}>
-                ${Object.entries(SORTS).map(([k, v]) => html`<option value=${k}>${v}</option>`)}
-              </select>
-            </label>
-          </div>
-          <div class="chips" role="toolbar" aria-label="Filters">
-            ${Object.entries(STATUSES).map(([k, v]) => html`
-              <button class="chip ${prefs.status === k ? 'on' : ''}" aria-pressed=${prefs.status === k}
-                onClick=${() => setPref('status', k)}>
-                ${v}${k === 'todo' ? ` ${left}` : k === 'done' ? ` ${done}` : ''}
-              </button>
-            `)}
-            ${presentCats.length > 1 && html`<span class="chip-sep"></span>`}
-            ${presentCats.length > 1 && presentCats.map(c => html`
-              <button class="chip ${cat === c ? 'on' : ''}" aria-pressed=${cat === c}
-                onClick=${() => setCat(cat === c ? null : c)}>
-                <span class="dot cat-${c}"></span>${capital(c)}
-              </button>
-            `)}
-          </div>
+        <div class="shop-bar">
+          <span>Shopping view — tap an item to check it off.</span>
+          <button class="link" onClick=${showAll}>Edit list</button>
         </div>
-
         <main class="paper">
-          <ul class="rows" ref=${listRef} onFocusOut=${onListFocusOut}>
+          <ul class="shop">
             ${visible.map((item, n) => {
               let header = null;
-              if (prefs.sort === 'category') {
-                const group = hasText(item) || item.cat ? item.cat || 'other' : lastGroup;
-                if (group !== lastGroup) header = html`<li key=${`h-${group}-${n}`} class="group" aria-hidden="true">${capital(group || 'other')}</li>`;
+              if (sort === 'category') {
+                const group = item.cat || 'other';
+                if (group !== lastGroup) header = html`<li key=${`h-${group}-${n}`} class="group" aria-hidden="true">${capital(group)}</li>`;
                 lastGroup = group;
               }
               return html`
                 ${header}
-                <${Row} key=${item.id} item=${item}
-                  placeholder=${n === 0 && visible.length === 1 ? 'Type or paste a list…' : 'Item'}
-                  setRef=${setRef}
-                  onToggle=${toggle} onInput=${onRowInput} onKeyDown=${onRowKeyDown}
-                  onPaste=${onRowPaste} onFocus=${freeze} onPickCat=${pickCat} />
+                <li key=${item.id} class="shop-row ${item.checked ? 'done' : ''}" role="checkbox" aria-checked=${item.checked}
+                  tabIndex="0" onClick=${() => toggle(item.id)}
+                  onKeyDown=${e => (e.key === ' ' || e.key === 'Enter') && (e.preventDefault(), toggle(item.id))}>
+                  <span class="tick" aria-hidden="true"><span></span></span>
+                  <span class="shop-text">${item.text}</span>
+                  <${CatChip} item=${item} onOpen=${openPicker} stop=${true}/>
+                </li>
               `;
             })}
           </ul>
           ${visible.length === 0 && html`
-            <p class="empty-note">
-              ${total === 0 ? 'No items yet. Type or paste a list — each line becomes an item.'
-                : filtering ? 'Nothing matches.' : ''}
-              ${filtering && total > 0 && html` <button class="link" onClick=${() => { setQuery(''); setCat(null); setPref('status', 'all'); }}>Show all</button>`}
-            </p>
+            <p class="empty-note">${total === 0 ? 'No items yet.' : 'Nothing matches.'}
+              ${' '}<button class="link" onClick=${showAll}>Show all</button></p>
           `}
-          <button class="add-row" onClick=${addItem}>
-            <span class="add-icon">${IconPlus(16)}</span> Add item
-          </button>
         </main>
       `}
 
-      ${showScan && html`<${ScanModal} onClose=${() => setShowScan(false)} onLines=${lines => applyPaste(lines.join('\n'), {})}/>`}
+      ${picker && html`<${CatPicker} picker=${picker} onPick=${pickCat} onClose=${() => setPicker(null)}/>`}
+      ${showScan && html`<${ScanModal} onClose=${() => setShowScan(false)} onLines=${lines => appendLines(lines.join('\n'))}/>`}
     </div>
   `;
 }

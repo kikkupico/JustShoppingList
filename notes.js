@@ -1,8 +1,9 @@
 // Pure helpers for the checklist model. No DOM, no storage — unit-tested in
 // tests/notes.test.mjs.
 //
-// A list is an ordered array of items: { id, text, checked, cat, catKey, checkedAt }.
-// The array order is "my order". Search, filters and sort only change the view.
+// A list is an ordered array of items: { id, text, checked, cat, catKey, checkedAt },
+// one per line of the editor (blank lines are items with empty text). The array
+// order is "my order". Search, filters and sort only change the view.
 //   cat:    category name, or null until one has been worked out
 //   catKey: the item key `cat` was worked out for; when the text changes the
 //           category is recomputed (unless the user picked one for that name)
@@ -82,6 +83,7 @@ export function matchesQuery(item, query) {
 // that was just checked, so it doesn't vanish under your finger).
 export function viewItems(items, { query = '', status = 'all', cat = null, sort = 'mine', keep = null } = {}) {
   const visible = items.filter(i => {
+    if (!hasText(i)) return false;
     if (keep && keep.has(i.id)) return true;
     if (status === 'todo' && i.checked) return false;
     if (status === 'done' && !i.checked) return false;
@@ -109,61 +111,103 @@ export function viewItems(items, { query = '', status = 'all', cat = null, sort 
 
 // ─── Text in / out ────────────────────────────────────────────────────────────
 
-export function itemsToText(items, { markChecked = false, onlyUnchecked = false } = {}) {
+export function itemsToText(items, { onlyUnchecked = false } = {}) {
   return items
     .filter(i => hasText(i) && !(onlyUnchecked && i.checked))
-    .map(i => (markChecked && i.checked ? `[x] ${i.text}` : i.text))
+    .map(i => i.text)
     .join('\n');
 }
 
-// Turn edited text back into items. Lines that match an existing item keep
-// its id and category, so editing as text doesn't lose anything.
-export function textToItems(text, existing = []) {
-  const pool = new Map();
-  for (const i of existing) {
-    const k = lineKey(i.text);
-    if (!pool.has(k)) pool.set(k, []);
-    pool.get(k).push(i);
-  }
-  const out = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const { text: t, checked } = parseLine(raw);
-    if (!t) continue;
-    const prev = pool.get(lineKey(t))?.shift();
-    if (prev) {
-      out.push({ ...prev, text: t, checked, checkedAt: checked ? prev.checkedAt || new Date().toISOString() : null });
-    } else {
-      out.push(newItem(t, checked));
+// The editor is plain text, one item per line (blank lines are kept as empty
+// items). After each edit, match the new lines back to the previous items so
+// ids, check state and categories survive typing, Enter, joins and moves.
+//   revive:      Map text -> recently removed item, used for undo/redo and
+//                single-line paste so a line that comes back keeps its state
+//   markChecked: Set of line keys that new items should start checked
+// Returns { items, removed }.
+export function reconcile(items, lines, { revive = null, markChecked = null } = {}) {
+  let p = 0;
+  while (p < items.length && p < lines.length && items[p].text === lines[p]) p++;
+  let s = 0;
+  while (s < items.length - p && s < lines.length - p
+    && items[items.length - 1 - s].text === lines[lines.length - 1 - s]) s++;
+
+  const oldMid = items.slice(p, items.length - s);
+  const newMid = lines.slice(p, lines.length - s);
+  const out = new Array(newMid.length);
+  const used = new Set();
+
+  // 1. Lines that still exist word for word (moved or untouched).
+  const byText = new Map();
+  oldMid.forEach((it, i) => {
+    if (!byText.has(it.text)) byText.set(it.text, []);
+    byText.get(it.text).push(i);
+  });
+  newMid.forEach((t, k) => {
+    const q = byText.get(t);
+    if (q?.length) { const i = q.shift(); used.add(i); out[k] = oldMid[i]; }
+  });
+
+  // 2. A line that comes back (undo, paste of a cut line) gets its old item.
+  const revived = new Set();
+  newMid.forEach((t, k) => {
+    if (out[k] || !t.trim()) return;
+    const back = revive?.get(t);
+    if (back && !revived.has(back.id)) { revived.add(back.id); out[k] = { ...back, text: t }; }
+  });
+
+  // 3. Remaining lines pair up in order: an edited line keeps its item.
+  const rest = oldMid.map((_, i) => i).filter(i => !used.has(i));
+  let r = 0;
+  newMid.forEach((t, k) => {
+    if (out[k]) return;
+    const fresh = () => newItem(t, !!(t.trim() && markChecked?.has(lineKey(t))));
+    if (r < rest.length) {
+      const prev = oldMid[rest[r]];
+      used.add(rest[r++]);
+      // Filling in a blank line makes a new item; editing a real one keeps it.
+      out[k] = hasText(prev) ? { ...prev, text: t } : fresh();
+      return;
     }
-  }
-  return out;
+    out[k] = fresh();
+  });
+
+  const removed = oldMid.filter((_, i) => !used.has(i));
+  const all = [...items.slice(0, p), ...out, ...items.slice(items.length - s)];
+  // Ids must stay unique (a revived item could already be back on the list).
+  const ids = new Set();
+  const unique = all.map(i => {
+    if (!ids.has(i.id)) { ids.add(i.id); return i; }
+    const fresh = { ...i, id: uid() };
+    ids.add(fresh.id);
+    return fresh;
+  });
+  return { items: unique, removed };
 }
 
-// Add pasted lines to a list.
-//   afterId:   insert new items after this item (end of list when null)
-//   replaceId: an empty item to replace (pasting into a blank row)
-//   matchKey:  smarter duplicate key ("eggs" ≈ "egg"); quantities are ignored
-// Lines already on the list are not added again; they take the pasted check
-// state instead (normally unchecked — "need it again").
-export function mergePaste({ items, pasted, afterId = null, replaceId = null, matchKey = lineKey }) {
+// Work out what a pasted list adds. Lines already on the list (ignoring
+// quantities; matchKey can be smarter, e.g. "eggs" ≈ "egg") are not added
+// again — those items take the pasted check state instead, normally
+// unchecked ("need it again"). Bullets and [ ]/[x] boxes are stripped.
+//   exclude: ids of items being replaced by the paste
+// Returns { lines, newChecked (line keys), setChecked (id -> bool), skipped }.
+export function planPaste({ items, pasted, exclude = null, matchKey = lineKey }) {
   const safeMatch = (t) => {
     const name = stripQty(t);
     try { return matchKey(name) || lineKey(name); } catch { return lineKey(name); }
   };
-
   const existing = new Map(); // match key -> ids
   for (const i of items) {
-    if (i.id === replaceId || !hasText(i)) continue;
+    if (exclude?.has(i.id) || !hasText(i)) continue;
     const mk = safeMatch(i.text);
     if (!existing.has(mk)) existing.set(mk, []);
     existing.get(mk).push(i.id);
   }
-
-  const now = new Date().toISOString();
-  const setChecked = new Map(); // id -> checked
-  const fresh = [];
+  const lines = [];
+  const newChecked = new Set();
+  const setChecked = new Map();
   const seen = new Set();
-  let skipped = 0, unchecked = 0;
+  let skipped = 0;
   for (const raw of pasted.split(/\r?\n/)) {
     const { text, checked } = parseLine(raw);
     if (!text) continue;
@@ -174,26 +218,42 @@ export function mergePaste({ items, pasted, afterId = null, replaceId = null, ma
       skipped++;
       for (const id of existing.get(mk)) setChecked.set(id, checked);
     } else {
-      fresh.push(newItem(text, checked));
+      lines.push(text);
+      if (checked) newChecked.add(lineKey(text));
     }
   }
+  return { lines, newChecked, setChecked, skipped };
+}
 
-  let next = items.map(i => {
+// Apply planPaste's check changes. Returns { items, unchecked }.
+export function applyChecks(items, setChecked) {
+  const now = new Date().toISOString();
+  let unchecked = 0;
+  const next = items.map(i => {
     if (!setChecked.has(i.id)) return i;
     const checked = setChecked.get(i.id);
     if (i.checked === checked) return i;
     if (!checked) unchecked++;
     return { ...i, checked, checkedAt: checked ? now : i.checkedAt };
   });
+  return { items: next, unchecked };
+}
 
-  const anchor = replaceId ?? afterId;
-  const at = anchor == null ? -1 : next.findIndex(i => i.id === anchor);
-  if (at === -1) {
-    next = [...next.filter(i => i.id !== replaceId), ...fresh];
-  } else {
-    next = [...next.slice(0, replaceId ? at : at + 1), ...fresh, ...next.slice(at + 1)];
-  }
-  return { items: next, added: fresh, skipped, unchecked };
+// Add pasted lines to the end of a list (receipt scan, paste with nothing
+// focused). Returns { items, added, skipped, unchecked }.
+export function mergePaste({ items, pasted, matchKey = lineKey }) {
+  const plan = planPaste({ items, pasted, matchKey });
+  const { items: checkedItems, unchecked } = applyChecks(items, plan.setChecked);
+  // Drop trailing blank lines so new items follow the last real one.
+  let end = checkedItems.length;
+  while (end > 0 && !hasText(checkedItems[end - 1])) end--;
+  const fresh = plan.lines.map(t => newItem(t, plan.newChecked.has(lineKey(t))));
+  return {
+    items: [...checkedItems.slice(0, end), ...fresh],
+    added: fresh,
+    skipped: plan.skipped,
+    unchecked,
+  };
 }
 
 // ─── Older formats → items ────────────────────────────────────────────────────

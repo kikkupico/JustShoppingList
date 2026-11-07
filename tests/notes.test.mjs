@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {
   parseLine, lineKey, stripQty, nameKey, newItem, countItems, viewItems, itemsToText,
-  textToItems, mergePaste, textNoteToItems, listToNote, v1ToNotes,
+  reconcile, planPaste, applyChecks, mergePaste, textNoteToItems, listToNote, v1ToNotes,
 } from '../notes.js';
 
 let failed = 0;
@@ -71,44 +71,99 @@ test('viewItems: recent puts latest checked first', () => {
   assert.deepEqual(texts(viewItems(items, { sort: 'recent' })), ['c', 'b', 'a']);
 });
 
-test('itemsToText', () => {
+test('viewItems never shows blank lines', () => {
+  assert.deepEqual(texts(viewItems([mk('a'), mk(''), mk('b')])), ['a', 'b']);
+});
+
+test('itemsToText skips blanks', () => {
   const items = [mk('milk', true), mk('eggs'), mk('')];
   assert.equal(itemsToText(items), 'milk\neggs');
-  assert.equal(itemsToText(items, { markChecked: true }), '[x] milk\neggs');
   assert.equal(itemsToText(items, { onlyUnchecked: true }), 'eggs');
 });
 
-test('textToItems keeps ids and categories of matching lines', () => {
-  const milk = mk('Milk', true, { cat: 'dairy', catKey: 'milk' });
-  const out = textToItems('[x] milk\n- bread\n\n', [milk]);
-  assert.equal(out.length, 2);
-  assert.equal(out[0].id, milk.id);
-  assert.equal(out[0].cat, 'dairy');
+const lines = (items) => items.map(i => i.text);
+
+test('reconcile: editing a line keeps its item and check', () => {
+  const items = [mk('milk', true, { cat: 'dairy' }), mk('eggs')];
+  const { items: out, removed } = reconcile(items, ['oat milk', 'eggs']);
+  assert.equal(out[0].id, items[0].id);
   assert.equal(out[0].checked, true);
-  assert.equal(out[1].text, 'bread');
+  assert.equal(out[0].text, 'oat milk');
+  assert.equal(out[1], items[1], 'untouched lines keep the same object');
+  assert.equal(removed.length, 0);
 });
 
-test('mergePaste: new lines after the anchor, duplicates unchecked', () => {
-  const items = [mk('milk', true), mk('12x Eggs'), mk('tea')];
-  const r = mergePaste({ items, afterId: items[0].id, pasted: '- Milk\n- bread\n- eggs\n- bread\n' });
-  assert.deepEqual(texts(r.items), ['milk', 'bread', '12x Eggs', 'tea']);
-  assert.deepEqual([r.added.length, r.skipped, r.unchecked], [1, 2, 1]);
-  assert.equal(r.items[0].checked, false);
+test('reconcile: Enter mid-line splits, first half keeps the item', () => {
+  const items = [mk('milkeggs', true)];
+  const { items: out } = reconcile(items, ['milk', 'eggs']);
+  assert.equal(out[0].id, items[0].id);
+  assert.equal(out[1].checked, false);
+  assert.deepEqual(lines(out), ['milk', 'eggs']);
 });
 
-test('mergePaste: replaces an empty row and keeps pasted check state', () => {
-  const blank = mk('');
-  const items = [mk('a'), blank, mk('b')];
-  const r = mergePaste({ items, replaceId: blank.id, pasted: '- [x] jam\n- [ ] tea' });
-  assert.deepEqual(texts(r.items), ['a', 'jam', 'tea', 'b']);
+test('reconcile: new blank line, deleted line, moved line', () => {
+  const [a, b, c] = [mk('a'), mk('b', true), mk('c')];
+  let r = reconcile([a, b, c], ['a', '', 'b', 'c']);
+  assert.deepEqual(lines(r.items), ['a', '', 'b', 'c']);
+  assert.equal(r.items[2].id, b.id);
+  r = reconcile([a, b, c], ['a', 'c']);
+  assert.deepEqual(r.removed.map(i => i.id), [b.id]);
+  r = reconcile([a, b, c], ['c', 'a', 'b']);
+  assert.deepEqual(r.items.map(i => i.id), [c.id, a.id, b.id], 'moved lines keep identity');
+});
+
+test('reconcile: revive restores a removed item; markChecked checks new ones', () => {
+  const b = mk('butter', true, { cat: 'dairy' });
+  const revive = new Map([['butter', b]]);
+  const r = reconcile([mk('a')], ['a', 'butter', 'jam'], { revive, markChecked: new Set(['jam']) });
+  assert.equal(r.items[1].id, b.id);
   assert.equal(r.items[1].checked, true);
+  assert.equal(r.items[2].checked, true);
 });
 
-test('mergePaste: appends when no anchor; smarter matcher; throwing matcher', () => {
+test('reconcile: filling a blank line makes a new item (pasted [x] stays checked)', () => {
+  const blank = mk('', true);
+  const r = reconcile([mk('a'), blank], ['a', 'jam', 'tea'], { markChecked: new Set(['jam']) });
+  assert.deepEqual(r.items.slice(1).map(i => [i.text, i.checked]), [['jam', true], ['tea', false]]);
+});
+
+test('reconcile: a revived line beats pairing with a blank line; ids stay unique', () => {
+  const blank = mk('');
+  const milk = mk('milk', true);
+  let r = reconcile([mk('a'), blank], ['a', 'milk'], { revive: new Map([['milk', milk]]) });
+  assert.equal(r.items[1].id, milk.id);
+  assert.equal(r.items[1].checked, true);
+  r = reconcile([mk('a')], ['a', 'milk', 'milk'], { revive: new Map([['milk', milk]]) });
+  assert.equal(new Set(r.items.map(i => i.id)).size, 3);
+});
+
+test('planPaste: skips duplicates (ignoring quantity), cleans bullets, reads [x]', () => {
+  const items = [mk('milk', true), mk('12x Eggs'), mk('tea')];
+  const plan = planPaste({ items, pasted: '- Milk\n- bread\n- eggs\n- bread\n- [x] jam\n' });
+  assert.deepEqual(plan.lines, ['bread', 'jam']);
+  assert.equal(plan.skipped, 2);
+  assert.equal(plan.setChecked.get(items[0].id), false);
+  assert.ok(plan.newChecked.has('jam'));
+  const { items: out, unchecked } = applyChecks(items, plan.setChecked);
+  assert.equal(unchecked, 1);
+  assert.equal(out[0].checked, false);
+});
+
+test('planPaste: excluded items (being replaced) do not count as duplicates', () => {
+  const items = [mk('milk'), mk('tea')];
+  assert.deepEqual(planPaste({ items, pasted: 'milk\ntea', exclude: new Set([items[0].id]) }).lines, ['milk']);
+});
+
+test('planPaste: smarter matcher and a throwing matcher', () => {
   const items = [mk('eggs')];
-  const singular = t => t.toLowerCase().replace(/s$/, '');
-  assert.deepEqual(texts(mergePaste({ items, pasted: 'egg\nham', matchKey: singular }).items), ['eggs', 'ham']);
-  assert.deepEqual(texts(mergePaste({ items, pasted: 'eggs\nham', matchKey: () => { throw new Error('x'); } }).items), ['eggs', 'ham']);
+  assert.deepEqual(planPaste({ items, pasted: 'egg\nham', matchKey: t => t.toLowerCase().replace(/s$/, '') }).lines, ['ham']);
+  assert.deepEqual(planPaste({ items, pasted: 'eggs\nham', matchKey: () => { throw new Error('x'); } }).lines, ['ham']);
+});
+
+test('mergePaste appends after the last real line', () => {
+  const r = mergePaste({ items: [mk('a'), mk(''), mk('')], pasted: 'b\na' });
+  assert.deepEqual(lines(r.items), ['a', 'b']);
+  assert.deepEqual([r.added.length, r.skipped], [1, 1]);
 });
 
 test('textNoteToItems converts the v2 notepad format', () => {

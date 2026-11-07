@@ -4,14 +4,14 @@ A privacy-first, AI-free shopping list web app that runs entirely in your browse
 
 ## How it works
 
-Each list is a checklist, like a notes app in checklist mode: every line is an item.
+Each list is a plain-text checklist: one item per line, edited like any text editor. Select across lines, copy, cut, paste, and undo with Cmd/Ctrl+Z.
 
-- Type to add items. Enter starts the next item, Backspace on an empty item removes it, and Backspace at the start of an item joins it to the one above.
-- Tap the circle to check an item off. Checked items stay in place, struck through.
-- Paste a list into any item (or anywhere on the page) and each line becomes an item. Bullets and `- [ ]` / `- [x]` checkboxes are cleaned up; items already on the list are skipped and unchecked so they're "needed again".
-- Items get a category automatically (on-device keyword rules, no AI). Tap the category chip to change it; your choice is remembered for that item name.
-- **Search**, **filter** (All / To buy / Done, or by category) and **sort** (My order, A–Z, Category, Recently checked) only change the view, never your list order.
-- The ⋯ menu has Copy list, Copy what's left, Share, Edit as text (the whole list as plain text), Scan a receipt, Uncheck all and Remove checked (with Undo).
+- Tap the circle in the left margin to check an item off; the dot in the right margin is its category.
+- Moving or duplicating lines within the list behaves like a text editor: a cut-and-pasted checked line stays checked.
+- Pasting a list from elsewhere tidies it: bullets and `- [ ]` / `- [x]` checkboxes are stripped, and items already on the list are skipped and unchecked so they're "needed again".
+- Items get a category automatically (on-device keyword rules, no AI). Tap the dot to change it; your choice is remembered for that item name.
+- **Search**, **filters** (All / To buy / Done, or by category) and **sort** (A–Z, Category, Recently checked) switch to a shopping view where tapping an item checks it off. "Edit list" goes back to the editor. They never change your list order.
+- The ⋯ menu has Copy list, Copy what's left, Share, Scan a receipt, Uncheck all and Remove checked (with Undo).
 
 ## Privacy Guarantee
 
